@@ -41,10 +41,20 @@ router.get('/:id', async (req, res) => {
 // POST /api/categories
 router.post('/', async (req, res) => {
   const { name } = req.body;
+
+  if (!name || typeof name !== 'string' || name.trim().length === 0) {
+    return res.status(400).json({ error: 'Name is required and must be a non-empty string' });
+  }
+
   try {
-    const newCat = await prisma.category.create({ data: { name } });
+    const newCat = await prisma.category.create({
+      data: { name: name.trim() },
+    });
     res.status(201).json(newCat);
   } catch (err) {
+    if (err.code === 'P2002') {
+      return res.status(409).json({ error: `Category "${name.trim()}" already exists` });
+    }
     res.status(500).json({ error: err.message });
   }
 });
@@ -52,23 +62,38 @@ router.post('/', async (req, res) => {
 // PUT /api/categories/:id
 router.put('/:id', async (req, res) => {
   const { name } = req.body;
+  const id = parseInt(req.params.id);
+
+  if (!name || typeof name !== 'string' || name.trim().length === 0) {
+    return res.status(400).json({ error: 'Name is required and must be a non-empty string' });
+  }
+
   try {
     const updated = await prisma.category.update({
-      where: { id: parseInt(req.params.id) },
-      data: { name },
+      where: { id },
+      data: { name: name.trim() },
     });
     res.json(updated);
   } catch (err) {
+    if (err.code === 'P2025') {
+      return res.status(404).json({ error: 'Category not found' });
+    }
+    if (err.code === 'P2002') {
+      return res.status(409).json({ error: `Category "${name.trim()}" already exists` });
+    }
     res.status(500).json({ error: err.message });
   }
 });
 
 // DELETE /api/categories/:id
 router.delete('/:id', async (req, res) => {
+  const id = parseInt(req.params.id);
   try {
-    await prisma.category.delete({
-      where: { id: parseInt(req.params.id) },
-    });
+    const category = await prisma.category.findUnique({ where: { id } });
+    if (!category) return res.status(404).json({ error: 'Category not found' });
+
+    await prisma.menuItem.deleteMany({ where: { categoryId: id } });
+    await prisma.category.delete({ where: { id } });
     res.status(204).end();
   } catch (err) {
     res.status(500).json({ error: err.message });
