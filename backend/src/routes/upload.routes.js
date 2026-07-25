@@ -4,12 +4,13 @@ const multer = require('multer');
 const cloudinary = require('../config/cloudinary');
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
+const auth = require('../middleware/authMiddleware');
 
 const storage = multer.memoryStorage();
 const upload = multer({ storage });
 
-// POST /api/upload - upload image and link to menu item
-router.post('/', upload.single('image'), async (req, res) => {
+// POST /api/upload (protected) - upload image and link to menu item
+router.post('/', auth, upload.single('image'), async (req, res) => {
   const { itemId } = req.body;
 
   if (!req.file) {
@@ -43,8 +44,8 @@ router.post('/', upload.single('image'), async (req, res) => {
   }
 });
 
-// DELETE /api/upload/:public_id - delete image from cloudinary
-router.delete('/:public_id', async (req, res) => {
+// DELETE /api/upload/:public_id (protected) - delete image from cloudinary
+router.delete('/:public_id', auth, async (req, res) => {
   try {
     await cloudinary.uploader.destroy(req.params.public_id);
     res.status(204).end();

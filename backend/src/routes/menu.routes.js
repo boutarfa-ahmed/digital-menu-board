@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
+const auth = require('../middleware/authMiddleware');
 
 // GET /api/menu  OR  GET /api/menu?id=1  OR  GET /api/menu?category=Pizzas
 router.get('/', async (req, res) => {
@@ -39,8 +40,8 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// POST /api/menu
-router.post('/', async (req, res) => {
+// POST /api/menu (protected)
+router.post('/', auth, async (req, res) => {
   const { name, description, price, imageUrl, categoryId, available } = req.body;
 
   if (!name || typeof name !== 'string' || name.trim().length === 0) {
@@ -81,8 +82,8 @@ router.post('/', async (req, res) => {
   }
 });
 
-// PUT /api/menu/:id
-router.put('/:id', async (req, res) => {
+// PUT /api/menu/:id (protected)
+router.put('/:id', auth, async (req, res) => {
   const { name, description, price, imageUrl, categoryId, available } = req.body;
   const id = parseInt(req.params.id);
 
@@ -124,8 +125,8 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-// DELETE /api/menu/:id
-router.delete('/:id', async (req, res) => {
+// DELETE /api/menu/:id (protected)
+router.delete('/:id', auth, async (req, res) => {
   const id = parseInt(req.params.id);
   try {
     const item = await prisma.menuItem.findUnique({ where: { id } });
