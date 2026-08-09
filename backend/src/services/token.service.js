@@ -1,0 +1,89 @@
+const crypto = require('crypto');
+const jwt = require('jsonwebtoken');
+const { PrismaClient } = require('@prisma/client');
+const prisma = new PrismaClient();
+
+const ACCESS_SECRET = process.env.JWT_SECRET || 'galaxyfood_secret_key';
+const REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'galaxyfood_refresh_secret_key';
+const ACCESS_EXPIRES_IN = process.env.ACCESS_TOKEN_EXPIRES_IN || '15m';
+const REFRESH_EXPIRES_IN_DAYS = parseInt(process.env.REFRESH_TOKEN_EXPIRES_IN || '30', 10);
+
+function hashToken(token) {
+  return crypto.createHash('sha256').update(token).digest('hex');
+}
+
+function signAccessToken(user) {
+  return jwt.sign(
+    { id: user.id, email: user.email, role: user.role },
+    ACCESS_SECRET,
+    { expiresIn: ACCESS_EXPIRES_IN }
+  );
+}
+
+function signRefreshToken(user) {
+  return jwt.sign(
+    { id: user.id },
+    REFRESH_SECRET,
+    { expiresIn: `${REFRESH_EXPIRES_IN_DAYS}d` }
+  );
+}
+
+async function saveRefreshToken(userId, refreshToken) {
+  const expiresAt = new Date(Date.now() + REFRESH_EXPIRES_IN_DAYS * 24 * 60 * 60 * 1000);
+  await prisma.refreshToken.create({
+    data: {
+      token: hashToken(refreshToken),
+      userId,
+      expiresAt,
+    },
+  });
+}
+
+// Validates a refresh token, revokes it, and issues a fresh access + refresh pair.
+async function rotateRefreshToken(refreshToken) {
+  const stored = await prisma.refreshToken.findUnique({
+    where: { token: hashToken(refreshToken) },
+  });
+  if (!stored) {
+    const error = new Error('Invalid refresh token');
+    error.status = 401;
+    throw error;
+  }
+  if (stored.expiresAt < new Date()) {
+    await prisma.refreshToken.delete({ where: { id: stored.id } });
+    const error = new Error('Refresh token expired');
+    error.status = 401;
+    throw error;
+  }
+
+  const user = await prisma.user.findUnique({ where: { id: stored.userId } });
+  if (!user) {
+    const error = new Error('User not found');
+    error.status = 401;
+    throw error;
+  }
+
+  await prisma.refreshToken.delete({ where: { id: stored.id } });
+
+  const nextRefreshToken = signRefreshToken(user);
+  await saveRefreshToken(user.id, nextRefreshToken);
+
+  return {
+    user: {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+    },
+    accessToken: signAccessToken(user),
+    refreshToken: nextRefreshToken,
+  };
+}
+
+module.exports = {
+  signAccessToken,
+  signRefreshToken,
+  saveRefreshToken,
+  rotateRefreshToken,
+  hashToken,
+};

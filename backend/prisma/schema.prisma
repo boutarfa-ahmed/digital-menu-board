@@ -8,9 +8,13 @@ datasource db {
 }
 
 model Category {
-  id        Int        @id @default(autoincrement())
-  name      String     @unique   // "Pizzas", "Boissons", "Desserts"
-  items     MenuItem[]
+  id     Int        @id @default(autoincrement())
+  name   String     @unique   // "Pizzas", "Boissons", "Desserts"
+  order  Int        @default(0) // display order on the board
+  icon   String?    // icon key rendered by the frontend
+  color  String?    // hex color or tailwind key
+  items  MenuItem[]
+  screens Screen[] // TV screens this category is assigned to
 }
 
 model MenuItem {
@@ -18,18 +22,99 @@ model MenuItem {
   name        String
   description String?
   price       Float
-  imageUrl    String?
-  available   Boolean  @default(true)
+  imageUrl    String?       // cover image (legacy)
+  images      String   @default("[]") // JSON array of image URLs
+  tags        String   @default("[]") // JSON array: "spicy", "vegan", "promo"
+  status      String   @default("available") // "available" | "out_of_stock" | "archived"
+  available   Boolean  @default(true) // legacy, synced with status
+  order       Int      @default(0) // display order within category
   categoryId  Int
   category    Category @relation(fields: [categoryId], references: [id])
+  screens     Screen[] // TV screens this item is assigned to
+  zoneItems   ZoneItem[] // placement in layout zones
   createdAt   DateTime @default(now())
 }
 
 model User {
+  id            Int            @id @default(autoincrement())
+  name          String
+  email         String         @unique
+  password      String
+  role          String         @default("admin") // "admin" | "staff"
+  refreshTokens RefreshToken[]
+  createdAt     DateTime       @default(now())
+}
+
+model RefreshToken {
   id        Int      @id @default(autoincrement())
-  name      String
-  email     String   @unique
-  password  String
-  role      String   @default("admin")
+  token     String   @unique // sha256 hash of the refresh token
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
   createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model Screen {
+  id         Int        @id @default(autoincrement())
+  name       String   // e.g. "TV1", "TV Entrée"
+  location   String?  // e.g. "Salle principale", "Terrasse"
+  layout     String   @default("{\"template\":\"full\"}") // legacy JSON layout config
+  status     String   @default("offline") // "online" | "offline" | "disabled"
+  lastPing   DateTime @default(now()) // last heartbeat received from the TV
+  categories Category[] // categories assigned to this screen
+  items      MenuItem[] // individual items assigned to this screen
+  screenLayout ScreenLayout? // zone-based layout (T6.x)
+  createdAt  DateTime @default(now())
+}
+
+model ScreenLayout {
+  id        Int      @id @default(autoincrement())
+  screenId  Int      @unique // one layout per screen (for now)
+  screen    Screen   @relation(fields: [screenId], references: [id], onDelete: Cascade)
+  name      String?  // optional label, e.g. "Layout principal"
+  status    String   @default("draft") // "draft" | "published" — live TV only renders published
+  settings  String   @default("{}") // JSON: showPrices, showImages, refreshInterval...
+  zones     Zone[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now())
+
+  @@index([screenId])
+}
+
+model Zone {
+  id              Int          @id @default(autoincrement())
+  layoutId        Int
+  layout          ScreenLayout @relation(fields: [layoutId], references: [id], onDelete: Cascade)
+  name            String?  // optional label
+  zoneType        String   @default("menu") // "menu" | "list" | "carousel" | "banner" | "highlight"
+  gridConfig      String   @default("{}") // JSON: { rows, cols } for the zone's inner grid
+  cardTemplate    String   @default("default") // "default" | "compact" | "large" | "minimal"
+  backgroundStyle String?  // optional JSON/CSS background (color, image)
+  x               Int      @default(0) // position on the screen's global grid
+  y               Int      @default(0)
+  w               Int      @default(1) // width in grid columns
+  h               Int      @default(1) // height in grid rows
+  order           Int      @default(0) // z-order / render order
+  items           ZoneItem[]
+  createdAt       DateTime @default(now())
+
+  @@index([layoutId])
+}
+
+model ZoneItem {
+  id        Int       @id @default(autoincrement())
+  zoneId    Int
+  zone      Zone      @relation(fields: [zoneId], references: [id], onDelete: Cascade)
+  itemId    Int
+  item      MenuItem  @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  row       Int?      // row position inside a grid zone
+  col       Int?      // column position inside a grid zone
+  index     Int?      // sequential position for list/carousel zones
+  order     Int       @default(0) // fallback ordering
+  createdAt DateTime  @default(now())
+
+  @@unique([zoneId, itemId])
+  @@index([zoneId])
 }
