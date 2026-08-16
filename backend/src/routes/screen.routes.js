@@ -14,7 +14,9 @@ const {
   parseZoneLayout,
   replaceLayout,
   validatePublishableLayout,
+  validateBackgroundConfig,
 } = require('../services/zone.service');
+const { resolveLayoutTheme, themeExists } = require('../services/theme.service');
 const { broadcast } = require('../services/broadcast');
 
 const ONLINE_THRESHOLD_MS = 60 * 1000; // considered online if pinged within 60s
@@ -131,7 +133,8 @@ router.get('/:id/layout', async (req, res) => {
       },
     });
     if (!layout) return res.status(404).json({ error: 'No layout found for this screen' });
-    res.json(parseZoneLayout(layout));
+    const theme = await resolveLayoutTheme(prisma, layout);
+    res.json({ ...parseZoneLayout(layout), theme });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -147,14 +150,25 @@ router.post('/:id/layout', auth, requireRole('admin'), async (req, res) => {
     const existing = await prisma.screenLayout.findUnique({ where: { screenId: id } });
     if (existing) return res.status(409).json({ error: 'A layout already exists for this screen' });
 
+    if (req.body?.themeId != null && !(await themeExists(prisma, req.body.themeId))) {
+      return res.status(400).json({ error: 'Theme not found' });
+    }
+
+    const bgErrors = validateBackgroundConfig(req.body?.settings?.background);
+    if (bgErrors.length > 0) {
+      return res.status(400).json({ error: bgErrors.join('; ') });
+    }
+
     const layout = await prisma.screenLayout.create({
       data: {
         screenId: id,
         name: req.body?.name || 'Nouveau layout',
         settings: JSON.stringify(req.body?.settings || { showPrices: true, showImages: true }),
+        ...(req.body?.themeId != null ? { themeId: parseInt(req.body.themeId, 10) } : {}),
       },
     });
-    res.status(201).json(parseZoneLayout(layout));
+    const theme = await resolveLayoutTheme(prisma, layout);
+    res.status(201).json({ ...parseZoneLayout(layout), theme });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -184,8 +198,9 @@ router.post('/:id/layout/publish', auth, requireRole('admin'), async (req, res) 
       where: { id: layout.id },
       data: { status: 'published' },
     });
+    const theme = await resolveLayoutTheme(prisma, published);
     broadcast({ type: 'layout:published', screenId: id, timestamp: Date.now() });
-    res.json(parseZoneLayout({ ...published, zones: layout.zones }));
+    res.json({ ...parseZoneLayout({ ...published, zones: layout.zones }), theme });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -193,14 +208,23 @@ router.post('/:id/layout/publish', auth, requireRole('admin'), async (req, res) 
 
 // PUT /api/screens/:id/layout — bulk update.
 // Zone-based: body { name?, settings?, zones: [...] } -> single transaction for the whole layout.
+// Settings-only: body { settings } (e.g. screen background) keeps existing zones.
 // Legacy: body { template, rows, cols, cells, settings } (Phase 6 grid builder).
 router.put('/:id/layout', auth, requireRole('admin'), async (req, res) => {
   const id = parseInt(req.params.id, 10);
 
-  if (req.body && Array.isArray(req.body.zones)) {
+  const isZonePayload = req.body && Array.isArray(req.body.zones);
+  const isSettingsOnly =
+    req.body &&
+    req.body.settings &&
+    req.body.template === undefined &&
+    req.body.rows === undefined &&
+    req.body.cells === undefined;
+  if (isZonePayload || isSettingsOnly) {
     try {
       const layout = await replaceLayout(prisma, id, req.body);
-      res.json(parseZoneLayout(layout));
+      const theme = await resolveLayoutTheme(prisma, layout);
+      res.json({ ...parseZoneLayout(layout), theme });
     } catch (err) {
       if (err.name === 'ZoneValidationError') return res.status(400).json({ error: err.message });
       if (err.code === 'P2025') return res.status(404).json({ error: 'Screen not found' });

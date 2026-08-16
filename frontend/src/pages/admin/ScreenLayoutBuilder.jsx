@@ -29,7 +29,7 @@ function SimplePreview({ layout, itemsById, catsById, dragOver, onDragOver, onDr
             </span>
           )}
           <p className="text-sm font-medium text-gray-800 dark:text-white/90">{item?.name || 'Produit'}</p>
-          <p className="text-xs text-gray-500 dark:text-gray-400">{Number(item?.price || 0).toFixed(2)} CHF</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">{item?.price != null ? `${Number(item.price).toFixed(2)} CHF` : '—'}</p>
         </div>
       )
     }
@@ -65,12 +65,12 @@ function SimplePreview({ layout, itemsById, catsById, dragOver, onDragOver, onDr
               </span>
               <p className="text-sm font-medium text-gray-800 dark:text-white/90">{item.name}</p>
             </div>
-            <p className="text-sm text-gray-500 dark:text-gray-400">{Number(item.price).toFixed(2)} CHF</p>
-          </div>
-        ))}
-      </div>
-    )
-  }
+<p className="text-sm text-gray-500 dark:text-gray-400">{item.price != null ? `${Number(item.price).toFixed(2)} CHF` : '—'}</p>
+            </div>
+          ))}
+        </div>
+      )
+    }
 
   if (template === 'carousel') {
     const first = Object.values(itemsById)[0]
@@ -87,7 +87,7 @@ function SimplePreview({ layout, itemsById, catsById, dragOver, onDragOver, onDr
             )}
             <div>
               <p className="text-sm font-semibold text-gray-800 dark:text-white/90">{first.name}</p>
-              <p className="text-sm text-gray-500 dark:text-gray-400">{Number(first.price).toFixed(2)} CHF</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">{first.price != null ? `${Number(first.price).toFixed(2)} CHF` : '—'}</p>
             </div>
           </div>
         ) : (
@@ -286,7 +286,7 @@ function ScreenLayoutBuilder({ screen, onClose, onSaved }) {
                       )}
                       <div className="min-w-0">
                         <p className="truncate text-sm font-medium text-gray-800 dark:text-white/90">{item.name}</p>
-                        <p className="text-xs text-gray-400">{Number(item.price).toFixed(2)} CHF</p>
+                        <p className="text-xs text-gray-400">{item.price != null ? `${Number(item.price).toFixed(2)} CHF` : '—'}</p>
                       </div>
                       {assignedItems.includes(item.id) && <Badge size="sm" color="success">assigné</Badge>}
                     </div>

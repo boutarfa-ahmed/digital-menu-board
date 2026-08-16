@@ -60,6 +60,7 @@ router.put('/zones/:id', auth, requireRole('admin'), async (req, res) => {
   }
   if (b.gridConfig !== undefined) data.gridConfig = serializeJson(b.gridConfig, '{}');
   if (b.backgroundStyle !== undefined) data.backgroundStyle = serializeJson(b.backgroundStyle, null);
+  if (b.badgeConfig !== undefined) data.badgeConfig = serializeJson(b.badgeConfig, null);
 
   try {
     const zone = await prisma.zone.findUnique({ where: { id } });
@@ -119,19 +120,22 @@ router.put('/zones/:id/items', auth, requireRole('admin'), async (req, res) => {
     const zone = await prisma.zone.findUnique({ where: { id } });
     if (!zone) return res.status(404).json({ error: 'Zone not found' });
 
-    await prisma.$transaction([
-      prisma.zoneItem.deleteMany({ where: { zoneId: id } }),
-      prisma.zoneItem.createMany({
-        data: items.map((it, i) => ({
-          zoneId: id,
-          itemId: parseInt(it.itemId, 10),
-          row: it.row ?? null,
-          col: it.col ?? null,
-          index: it.index ?? i,
-          order: it.order ?? i,
-        })),
-      }),
-    ]);
+    const ops = [prisma.zoneItem.deleteMany({ where: { zoneId: id } })];
+    if (items.length > 0) {
+      ops.push(
+        prisma.zoneItem.createMany({
+          data: items.map((it, i) => ({
+            zoneId: id,
+            itemId: parseInt(it.itemId, 10),
+            row: it.row ?? null,
+            col: it.col ?? null,
+            index: it.index ?? i,
+            order: it.order ?? i,
+          })),
+        })
+      );
+    }
+    await prisma.$transaction(ops);
     await setLayoutDraft(prisma, zone.layoutId);
 
     const updated = await prisma.zone.findUnique({

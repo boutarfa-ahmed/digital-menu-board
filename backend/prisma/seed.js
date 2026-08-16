@@ -6,6 +6,28 @@ async function main() {
   await prisma.menuItem.deleteMany();
   await prisma.category.deleteMany();
   await prisma.screen.deleteMany();
+  await prisma.theme.deleteMany();
+
+  // T7.1: default theme — Galaxy Food design tokens (noir/blanc split, orange/vert accents)
+  const defaultTheme = await prisma.theme.create({
+    data: {
+      name: 'Défaut Galaxy Food',
+      isDefault: true,
+      colors: JSON.stringify({
+        primary: '#FF5A1F', // orange-red — titles / CTA
+        secondary: '#E8232A', // deep red — alt highlight
+        bgDark: '#0D0D0D', // charcoal black — textured bg
+        bgLight: '#F5F3EF', // off-white — paper panel bg
+        accent: '#4CAF50', // green — secondary accent
+        text: '#1A1A1A', // body text on light panels
+      }),
+      fonts: JSON.stringify({
+        heading: "'Anton', 'Bebas Neue', sans-serif",
+        body: "'Inter', 'Poppins', sans-serif",
+      }),
+      badgeStyle: 'torn-paper',
+    },
+  });
 
   // Create categories
   const catDefs = [
@@ -119,6 +141,7 @@ async function main() {
       name: 'Layout principal',
       status: 'published',
       settings: JSON.stringify({ showPrices: true, showImages: true }),
+      themeId: defaultTheme.id,
     },
   });
 
@@ -130,6 +153,11 @@ async function main() {
       x: 0, y: 0, w: 4, h: 1,
       order: 1,
       gridConfig: JSON.stringify({ rows: 1, cols: 1 }),
+      badgeConfig: JSON.stringify({
+        text: 'SERVED WITH FRIES AND DRINK',
+        style: 'ribbon',
+        position: 'top-center',
+      }),
     },
   });
   const pizzaGrid = await prisma.zone.create({
@@ -141,6 +169,11 @@ async function main() {
       order: 2,
       gridConfig: JSON.stringify({ rows: 2, cols: 2 }),
       cardTemplate: 'compact',
+      badgeConfig: JSON.stringify({
+        text: 'NOUVEAU',
+        style: 'torn-paper',
+        position: 'top-left',
+      }),
     },
   });
   const drinksList = await prisma.zone.create({
@@ -179,7 +212,7 @@ async function main() {
   }
 
   console.log(
-    'Seed completed: 5 categories, ' + items.length + ' items, ' + screens.length + ' screens, ' +
+    'Seed completed: 1 theme (' + defaultTheme.name + '), 5 categories, ' + items.length + ' items, ' + screens.length + ' screens, ' +
       '1 layout (' + layout.id + ') with 3 zones and 7 zone items created'
   );
 }

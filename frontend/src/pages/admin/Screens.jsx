@@ -394,7 +394,7 @@ function Screens() {
               {items.map((item) => (
                 <Checkbox
                   key={item.id}
-                  label={`${item.name} — ${Number(item.price).toFixed(2)} CHF`}
+                  label={`${item.name}${item.price != null ? ` — ${Number(item.price).toFixed(2)} CHF` : ''}`}
                   checked={assignedItems.includes(item.id)}
                   onChange={() => toggleItem(item.id)}
                 />

@@ -83,7 +83,7 @@ router.post('/', auth, requireRole('admin'), async (req, res) => {
   if (!name || typeof name !== 'string' || name.trim().length === 0) {
     return res.status(400).json({ error: 'Name is required and must be a non-empty string' });
   }
-  if (price === undefined || price === null || typeof price !== 'number' || price <= 0) {
+  if (price !== undefined && price !== null && (typeof price !== 'number' || price <= 0)) {
     return res.status(400).json({ error: 'Price must be a positive number' });
   }
   if (categoryId === undefined || categoryId === null) {
@@ -107,7 +107,7 @@ router.post('/', auth, requireRole('admin'), async (req, res) => {
       data: {
         name: name.trim(),
         description: description || null,
-        price,
+        price: price ?? null,
         imageUrl: imageUrl || null,
         images: JSON.stringify(Array.isArray(images) ? images : []),
         tags: JSON.stringify(Array.isArray(tags) ? tags : []),
@@ -235,7 +235,7 @@ router.put('/:id', auth, requireRole('admin'), async (req, res) => {
   if (name !== undefined && (typeof name !== 'string' || name.trim().length === 0)) {
     return res.status(400).json({ error: 'Name must be a non-empty string' });
   }
-  if (price !== undefined && (typeof price !== 'number' || price <= 0)) {
+  if (price !== undefined && price !== null && (typeof price !== 'number' || price <= 0)) {
     return res.status(400).json({ error: 'Price must be a positive number' });
   }
   if (status !== undefined && !VALID_STATUSES.includes(status)) {

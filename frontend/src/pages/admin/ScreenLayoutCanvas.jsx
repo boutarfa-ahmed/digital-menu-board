@@ -43,6 +43,324 @@ const CARD_TEMPLATE_LABELS = {
   media: 'Média',
 }
 
+// T7.3 — zone badge/label config (plain JSON on the zone)
+const BADGE_STYLES = ['torn-paper', 'ribbon', 'circle-stamp']
+const BADGE_STYLE_LABELS = {
+  'torn-paper': 'Papier déchiré',
+  ribbon: 'Ruban',
+  'circle-stamp': 'Cachet rond',
+}
+const BADGE_POSITIONS = ['top-left', 'top-center', 'top-right', 'bottom-left', 'bottom-center', 'bottom-right']
+const BADGE_POSITION_LABELS = {
+  'top-left': 'Haut gauche',
+  'top-center': 'Haut centre',
+  'top-right': 'Haut droite',
+  'bottom-left': 'Bas gauche',
+  'bottom-center': 'Bas centre',
+  'bottom-right': 'Bas droite',
+}
+
+// T7.4 — zone style overrides (backgroundStyle JSON on the zone)
+const FONT_SIZES = [12, 14, 16, 18, 20, 24, 28]
+const STYLE_DEFAULTS = {
+  bgDark: '#121212',
+  bgLight: '#F5F3EF',
+  textDark: '#FFFFFF',
+  textLight: '#1A1A1A',
+  accent: '#FF5A1F',
+}
+
+// T7.6 — screen-level background (stored in layout.settings.background)
+const BG_TYPES = ['image', 'split']
+const BG_TYPE_LABELS = {
+  image: 'Image',
+  split: 'Bicolore 50/50',
+}
+const BG_PATTERNS = ['none', 'torn-paper']
+const BG_PATTERN_LABELS = {
+  none: 'Aucun',
+  'torn-paper': 'Papier déchiré',
+}
+const BG_DEFAULTS = {
+  type: 'split',
+  dark: '#121212',
+  light: '#F5F3EF',
+  angle: 0,
+  pattern: 'none',
+  patternColor: '#FFFFFF',
+}
+
+// Subtle paper grain overlay (SVG feTurbulence -> monochrome alpha noise)
+const PAPER_GRAIN = `url("data:image/svg+xml,${encodeURIComponent(
+  "<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='matrix' values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0.9 0.9 0.9 0.55 0'/></filter><rect width='140' height='140' filter='url(#n)'/></svg>"
+)}")`
+
+// Torn paper band used along the split divider (color-injectable)
+function tornStripDataUri(color) {
+  return `url("data:image/svg+xml,${encodeURIComponent(
+    `<svg xmlns='http://www.w3.org/2000/svg' width='64' height='40'><path d='M0 8 L5 13 L10 6 L16 14 L22 5 L28 13 L34 7 L40 14 L46 6 L52 13 L57 8 L63 13 L64 13 L64 27 L58 33 L52 26 L46 34 L40 27 L34 33 L28 26 L22 34 L16 27 L10 33 L5 26 L0 31 Z' fill='${color}'/></svg>`
+  )}")`
+}
+
+function backgroundCss(bg) {
+  if (!bg) return null
+  if (bg.type === 'image' && bg.imageUrl) {
+    return {
+      backgroundImage: `url("${bg.imageUrl}")`,
+      backgroundSize: 'cover',
+      backgroundPosition: 'center',
+      backgroundRepeat: 'no-repeat',
+    }
+  }
+  if (bg.type === 'split') {
+    const dark = bg.dark || BG_DEFAULTS.dark
+    const light = bg.light || BG_DEFAULTS.light
+    const angle = Number(bg.angle) || 0
+    return {
+      backgroundImage: `linear-gradient(${angle + 90}deg, ${dark} 50%, ${light} 50%)`,
+    }
+  }
+  return null
+}
+
+// Optional torn-paper texture over a screen background (grain + jagged divider)
+function BackgroundOverlays({ bg }) {
+  if (!bg || bg.pattern !== 'torn-paper') return null
+  const color = bg.patternColor || BG_DEFAULTS.patternColor
+  const isSplit = bg.type === 'split'
+  const angle = Number(bg.angle) || 0
+  return (
+    <>
+      <div
+        className="pointer-events-none absolute inset-0"
+        style={{ backgroundImage: PAPER_GRAIN, backgroundRepeat: 'repeat', opacity: 0.14 }}
+      />
+      {isSplit && (
+        <div
+          className="pointer-events-none absolute left-1/2 top-1/2"
+          style={{
+            width: '300%',
+            height: 40,
+            transform: `translate(-50%, -50%) rotate(${angle - 90}deg)`,
+            transformOrigin: 'center',
+            backgroundImage: tornStripDataUri(color),
+            backgroundRepeat: 'repeat-x',
+            backgroundSize: '64px 40px',
+            opacity: 0.9,
+          }}
+        />
+      )}
+    </>
+  )
+}
+
+// Compact live badge preview rendered inside the canvas zone boxes
+const TORN_CLIP =
+  'polygon(0% 0%, 2.4% 7%, 4.6% 1.5%, 8% 9%, 10.5% 2%, 14% 8%, 16.8% 0.5%, 20% 7%, 23% 2.5%, 26.5% 9.5%, 29% 1.5%, 32.5% 7.5%, 35% 0%, 100% 0%, 100% 100%, 0% 100%)'
+const BADGE_POS_PX = {
+  'top-left': { top: 2, left: 2 },
+  'top-center': { top: 2, left: '50%', translateX: true },
+  'top-right': { top: 2, right: 2 },
+  'bottom-left': { bottom: 2, left: 2 },
+  'bottom-center': { bottom: 2, left: '50%', translateX: true },
+  'bottom-right': { bottom: 2, right: 2 },
+}
+
+function ZoneBadgePreview({ config, accent }) {
+  if (!config) return null
+  const style = BADGE_STYLES.includes(config.style) ? config.style : 'torn-paper'
+  const pos = BADGE_POS_PX[config.position] || BADGE_POS_PX['top-right']
+  const transform = (pos.translateX ? 'translateX(-50%) ' : '') + (style === 'circle-stamp' ? 'rotate(-6deg)' : style === 'torn-paper' ? 'rotate(-1.5deg)' : '')
+  const accentColor = accent || STYLE_DEFAULTS.accent
+  const label =
+    config.text ||
+    (config.price != null ? `${Number(config.price).toFixed(2).replace('.', ',')}€` : '')
+  const common = {
+    position: 'absolute',
+    zIndex: 20,
+    ...pos,
+    transform: transform || undefined,
+  }
+  if (style === 'circle-stamp') {
+    return (
+      <span
+        style={{
+          ...common,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          width: 26,
+          height: 26,
+          borderRadius: 9999,
+          border: `2px dashed ${accentColor}`,
+          background: '#FFFFFF',
+          color: accentColor,
+          fontSize: 6,
+          fontWeight: 700,
+          textAlign: 'center',
+          textTransform: 'uppercase',
+          lineHeight: 1.1,
+        }}
+      >
+        {label}
+      </span>
+    )
+  }
+  if (style === 'ribbon') {
+    return (
+      <span
+        style={{
+          ...common,
+          background: accentColor,
+          color: '#FFFFFF',
+          fontSize: 6,
+          fontWeight: 700,
+          letterSpacing: '0.06em',
+          textTransform: 'uppercase',
+          padding: '2px 6px',
+          transform: `skewX(-10deg)`,
+        }}
+      >
+        <span style={{ display: 'inline-block', transform: 'skewX(10deg)' }}>{label}</span>
+      </span>
+    )
+  }
+  return (
+    <span
+      style={{
+        ...common,
+        background: '#FFFFFF',
+        color: '#0D0D0D',
+        fontSize: 6,
+        fontWeight: 700,
+        textTransform: 'uppercase',
+        padding: '2px 5px',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+        clipPath: TORN_CLIP,
+      }}
+    >
+      {label}
+    </span>
+  )
+}
+
+// T7.5 — mini card-template mockup shown in canvas slots (wireframe + styled)
+function CardTemplatePreview({ template, name, accent }) {
+  const t = CARD_TEMPLATES.includes(template) ? template : 'default'
+  const a = accent || STYLE_DEFAULTS.accent
+  const imgBlock = <div className="min-h-0 flex-1 bg-gray-400/60" />
+
+  if (t === 'compact') {
+    return (
+      <div className="flex h-full w-full flex-col items-center justify-center gap-0.5 overflow-hidden">
+        <div className="size-4 flex-none rounded bg-white/85 shadow-sm" />
+        <span className="max-w-full truncate text-[8px] font-semibold uppercase leading-tight" style={{ color: a }}>
+          {name}
+        </span>
+      </div>
+    )
+  }
+  if (t === 'large') {
+    return (
+      <div className="flex h-full w-full flex-col overflow-hidden rounded bg-white/75 shadow-sm">
+        {imgBlock}
+        <div className="p-0.5">
+          <span className="block truncate text-[8px] font-semibold leading-tight" style={{ color: a }}>
+            {name}
+          </span>
+        </div>
+      </div>
+    )
+  }
+  if (t === 'minimal') {
+    return (
+      <div className="flex h-full w-full flex-col justify-center gap-0.5 overflow-hidden">
+        <span className="truncate text-[8px] font-semibold uppercase leading-tight" style={{ color: a }}>
+          {name}
+        </span>
+        <div className="h-0.5 w-3/4 rounded bg-white/40" />
+      </div>
+    )
+  }
+  if (t === 'media') {
+    return (
+      <div className="flex h-full w-full items-center gap-1 overflow-hidden rounded bg-white/75 shadow-sm">
+        <div className="h-full w-1/4 flex-none bg-gray-400/60" />
+        <span className="min-w-0 flex-1 truncate text-[8px] font-semibold leading-tight" style={{ color: a }}>
+          {name}
+        </span>
+      </div>
+    )
+  }
+  // default: small thumb + title + desc line
+  return (
+    <div className="flex h-full w-full items-center gap-1 overflow-hidden rounded bg-white/75 shadow-sm">
+      <div className="size-3.5 flex-none rounded bg-gray-400/60" />
+      <div className="min-w-0">
+        <span className="block truncate text-[8px] font-semibold leading-tight" style={{ color: a }}>
+          {name}
+        </span>
+        <div className="mt-0.5 h-0.5 w-2/3 rounded bg-white/40" />
+      </div>
+    </div>
+  )
+}
+
+// T7.5 — final "styled" content of a zone (used in preview mode)
+function StyledZoneContent({ zone, accent }) {
+  const items = zone.items || []
+  const t = zone.cardTemplate || 'default'
+
+  if (zone.zoneType === 'banner' || zone.zoneType === 'hero') {
+    return (
+      <div className="flex h-full w-full flex-col items-center justify-center gap-1 overflow-hidden rounded-md" style={{ background: 'linear-gradient(135deg, rgba(255,255,255,0.08), rgba(0,0,0,0.25))' }}>
+        {zone.name ? (
+          <span className="px-1 text-center font-bold uppercase leading-tight" style={{ color: accent, fontSize: '1.2em' }}>
+            {zone.name}
+          </span>
+        ) : null}
+        <div className="h-0.5 w-2/3 rounded bg-white/30" />
+      </div>
+    )
+  }
+
+  if (zone.zoneType === 'grid') {
+    const rows = zone.gridConfig?.rows || 1
+    const cols = zone.gridConfig?.cols || 1
+    return (
+      <div className="grid min-h-0 flex-1 gap-1" style={{ gridTemplateColumns: `repeat(${cols}, 1fr)`, gridTemplateRows: `repeat(${rows}, 1fr)` }}>
+        {Array.from({ length: rows * cols }, (_, i) => {
+          const r = Math.floor(i / cols)
+          const c = i % cols
+          const item = items.find((it) => it.row === r && it.col === c)
+          return item ? (
+            <div key={i} className="min-h-0 min-w-0 overflow-hidden rounded">
+              <CardTemplatePreview template={t} name={item.item?.name} accent={accent} />
+            </div>
+          ) : (
+            <div key={i} className="min-h-0 min-w-0 rounded border border-current opacity-25" />
+          )
+        })}
+      </div>
+    )
+  }
+
+  // list / carousel / menu
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-hidden">
+      {items.length === 0 ? (
+        <div className="m-auto text-[9px] uppercase tracking-wide opacity-50">Vide</div>
+      ) : (
+        items.slice(0, 12).map((it) => (
+          <div key={it.itemId} className="h-5 flex-none">
+            <CardTemplatePreview template={t} name={it.item?.name} accent={accent} />
+          </div>
+        ))
+      )}
+    </div>
+  )
+}
+
 const TYPE_SWATCH = {
   menu: 'bg-blue-light-500',
   grid: 'bg-brand-500',
@@ -206,6 +524,13 @@ function ScreenLayoutCanvas() {
   const [undoing, setUndoing] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [previewMode, setPreviewMode] = useState(false)
+
+  const [bgOpen, setBgOpen] = useState(false)
+  const [bgForm, setBgForm] = useState(null)
+  const [bgUploading, setBgUploading] = useState(false)
+  const [bgSaving, setBgSaving] = useState(false)
+  const [zoneImgUploading, setZoneImgUploading] = useState(false)
 
   const [modalOpen, setModalOpen] = useState(false)
   const [form, setForm] = useState({
@@ -223,11 +548,14 @@ function ScreenLayoutCanvas() {
 
   const [items, setItems] = useState([])
   const [categories, setCategories] = useState([])
-  const [productsOpen, setProductsOpen] = useState(false)
+  const [panelOpen, setPanelOpen] = useState(true)
+  const [panelTab, setPanelTab] = useState('produits')
   const [catFilter, setCatFilter] = useState('all')
   const [search, setSearch] = useState('')
   const [dropZoneId, setDropZoneId] = useState(null)
   const [dropTarget, setDropTarget] = useState(null)
+  const [zoneDrag, setZoneDrag] = useState(false)
+  const [trashOver, setTrashOver] = useState(false)
 
   const canvasRef = useRef(null)
   const zonesRef = useRef([])
@@ -259,6 +587,10 @@ function ScreenLayoutCanvas() {
     load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id])
+
+  useEffect(() => {
+    if (selectedId) setPanelTab('zone')
+  }, [selectedId])
 
   const cellFromEvent = (e) => {
     const rect = canvasRef.current.getBoundingClientRect()
@@ -420,6 +752,7 @@ function ScreenLayoutCanvas() {
         cardTemplate: z.cardTemplate,
         gridConfig: z.gridConfig,
         backgroundStyle: z.backgroundStyle,
+        badgeConfig: z.badgeConfig,
         x: z.x,
         y: z.y,
         w: z.w,
@@ -441,6 +774,7 @@ function ScreenLayoutCanvas() {
           cardTemplate: s.cardTemplate,
           gridConfig: s.gridConfig,
           backgroundStyle: s.backgroundStyle,
+          badgeConfig: s.badgeConfig,
           x: s.x,
           y: s.y,
           w: s.w,
@@ -579,6 +913,25 @@ function ScreenLayoutCanvas() {
     await putZoneItems(zone, items)
   }
 
+  const removeZoneItem = async (zoneId, itemId) => {
+    if (!isAdmin) return
+    const zone = layout?.zones?.find((z) => z.id === zoneId)
+    if (!zone) return
+    const isList = zone.zoneType === 'list' || zone.zoneType === 'carousel'
+    let items = (zone.items || []).filter((it) => it.itemId !== itemId)
+    if (items.length === (zone.items?.length ?? 0)) return
+    if (isList) {
+      items = items.map((it, i) => ({
+        itemId: it.itemId,
+        row: null,
+        col: null,
+        index: i,
+        order: i,
+      }))
+    }
+    await putZoneItems(zone, items)
+  }
+
   const createLayout = async () => {
     setCreating(true)
     setError('')
@@ -668,6 +1021,7 @@ function ScreenLayoutCanvas() {
           cardTemplate: z.cardTemplate,
           gridConfig: z.gridConfig,
           backgroundStyle: z.backgroundStyle,
+          badgeConfig: z.badgeConfig,
           x: z.x,
           y: z.y,
           w: z.w,
@@ -726,6 +1080,131 @@ function ScreenLayoutCanvas() {
     const n = Math.max(1, parseInt(value, 10) || 1)
     const gc = zone.gridConfig || {}
     patchZone(zone.id, { gridConfig: { rows: gc.rows || 1, cols: gc.cols || 1, [field]: n } })
+  }
+
+  // T7.3 — badge editing: merge into the zone's badgeConfig and always send a
+  // valid payload (drop empty text/price so the backend never rejects it).
+  const badge = selected?.badgeConfig || {}
+  const patchBadge = (patch) => {
+    const merged = { ...badge, ...patch }
+    const cfg = {}
+    if (merged.text) cfg.text = merged.text
+    const priceNum = Number(merged.price)
+    if (Number.isFinite(priceNum) && priceNum >= 0 && merged.price !== '') cfg.price = priceNum
+    if (BADGE_STYLES.includes(merged.style)) cfg.style = merged.style
+    if (BADGE_POSITIONS.includes(merged.position)) cfg.position = merged.position
+    if (cfg.text === undefined && cfg.price === undefined) {
+      patchZone(selected.id, { badgeConfig: null })
+      return
+    }
+    patchZone(selected.id, { badgeConfig: cfg })
+  }
+  const toggleBadge = (on) => {
+    if (on) {
+      patchZone(selected.id, { badgeConfig: { text: 'PROMO', style: 'torn-paper', position: 'top-right' } })
+    } else {
+      patchZone(selected.id, { badgeConfig: null })
+    }
+  }
+
+  // T7.4 — zone style overrides stored in backgroundStyle JSON
+  const styleCfg = selected?.backgroundStyle || {}
+  const patchStyle = (patch) => {
+    patchZone(selected.id, { backgroundStyle: { ...styleCfg, ...patch } })
+  }
+  const resetStyle = () => {
+    patchZone(selected.id, { backgroundStyle: styleCfg.dark !== undefined ? { dark: styleCfg.dark } : {} })
+  }
+
+  // T7.6 — screen background editor (layout.settings.background)
+  const screenBg = layout?.settings?.background || null
+  const openBg = () => {
+    setBgForm(screenBg ? { ...screenBg } : { ...BG_DEFAULTS })
+    setBgOpen(true)
+    setError('')
+  }
+  const saveBackground = async () => {
+    if (!layout) return
+    setBgSaving(true)
+    setError('')
+    try {
+      const settings = { ...(layout.settings || {}) }
+      if (bgForm && (bgForm.type || bgForm.pattern || bgForm.imageUrl)) {
+        settings.background = {
+          ...BG_DEFAULTS,
+          ...bgForm,
+          angle: Number(bgForm.angle) || 0,
+          pattern: BG_PATTERNS.includes(bgForm.pattern) ? bgForm.pattern : 'none',
+        }
+      } else {
+        settings.background = null
+      }
+      await api.put(`/screens/${id}/layout`, { settings })
+      await load()
+      setBgOpen(false)
+      setNotice('Fond de l’écran enregistré.')
+    } catch (err) {
+      setError(err.response?.data?.error || 'Impossible d’enregistrer le fond')
+    } finally {
+      setBgSaving(false)
+    }
+  }
+  const handleBgUpload = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setBgUploading(true)
+    setError('')
+    try {
+      const fd = new FormData()
+      fd.append('image', file)
+      const { data } = await api.post('/upload', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      setBgForm((prev) => ({ ...(prev || BG_DEFAULTS), type: 'image', imageUrl: data.url }))
+    } catch (err) {
+      setError(err.response?.data?.error || 'Échec de l’upload de l’image')
+    } finally {
+      setBgUploading(false)
+      e.target.value = ''
+    }
+  }
+  const removeBackground = async () => {
+    if (!layout) return
+    setBgSaving(true)
+    setError('')
+    try {
+      const settings = { ...(layout.settings || {}) }
+      settings.background = null
+      await api.put(`/screens/${id}/layout`, { settings })
+      await load()
+      setBgOpen(false)
+      setNotice('Fond de l’écran retiré.')
+    } catch (err) {
+      setError(err.response?.data?.error || 'Impossible de retirer le fond')
+    } finally {
+      setBgSaving(false)
+    }
+  }
+
+  // T7.9b — per-zone background image (upload -> backgroundStyle.bgImage)
+  const handleZoneImgUpload = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file || !selected) return
+    setZoneImgUploading(true)
+    setError('')
+    try {
+      const fd = new FormData()
+      fd.append('image', file)
+      const { data } = await api.post('/upload', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      patchStyle({ bgImage: data.url })
+    } catch (err) {
+      setError(err.response?.data?.error || 'Échec de l’upload de l’image')
+    } finally {
+      setZoneImgUploading(false)
+      e.target.value = ''
+    }
   }
 
   return (
@@ -787,10 +1266,19 @@ function ScreenLayoutCanvas() {
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => setProductsOpen((o) => !o)}
+                onClick={() => {
+                  setPanelOpen(true)
+                  setPanelTab('produits')
+                }}
               >
                 <ListIcon className="size-4" />
                 Produits
+              </Button>
+            )}
+            {isAdmin && layout && (
+              <Button size="sm" variant="outline" onClick={openBg} title="Fond et découpe de l’écran">
+                <span className="size-3 rounded-full border border-current" style={{ background: screenBg ? undefined : 'transparent' }} />
+                Fond
               </Button>
             )}
             {layout && (
@@ -842,133 +1330,499 @@ function ScreenLayoutCanvas() {
       )}
 
       <div className="flex flex-col gap-6 lg:flex-row">
-        {isAdmin && productsOpen && (
+        {isAdmin && screen && layout && panelOpen && (
           <aside className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white lg:w-72 lg:flex-none dark:border-gray-800 dark:bg-white/[0.03]">
-            <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3 dark:border-gray-800">
-              <div>
-                <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">Produits</p>
-                <p className="text-xs text-gray-400">Glissez un produit vers une zone</p>
-              </div>
-              <Badge size="sm" color="light">{filteredItems.length}</Badge>
-            </div>
-
-            <div className="space-y-3 border-b border-gray-100 p-4 dark:border-gray-800">
-              <Input
-                type="text"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Rechercher..."
-              />
-              <select
-                value={catFilter}
-                onChange={(e) => setCatFilter(e.target.value)}
-                className="w-full rounded-lg border border-gray-300 bg-transparent px-3 py-2.5 text-sm text-gray-800 outline-none focus:border-brand-300 focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:text-white/90"
-              >
-                <option value="all">Toutes les catégories</option>
-                {categories.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-4">
-              {filteredItems.length === 0 && (
-                <p className="text-sm text-gray-400">Aucun produit.</p>
-              )}
-              {filteredItems.map((item) => (
-                <div
-                  key={item.id}
-                  draggable
-                  onDragStart={(e) => {
-                    e.dataTransfer.setData('text/plain', JSON.stringify({ type: 'item', id: item.id }))
-                    e.dataTransfer.effectAllowed = 'copy'
-                  }}
-                  className="flex cursor-grab items-center gap-3 rounded-lg border border-gray-200 bg-white p-2 transition-shadow hover:shadow-md dark:border-gray-700 dark:bg-gray-800 active:cursor-grabbing"
+            <div className="flex border-b border-gray-100 dark:border-gray-800">
+              {[
+                { key: 'produits', label: 'Produits' },
+                { key: 'presets', label: 'Presets' },
+                { key: 'zone', label: 'Config' },
+                { key: 'style', label: 'Style' },
+              ].map((t) => (
+                <button
+                  key={t.key}
+                  type="button"
+                  onClick={() => setPanelTab(t.key)}
+                  className={`flex flex-1 items-center justify-center gap-1.5 px-2 py-2.5 text-sm font-medium transition-colors ${
+                    panelTab === t.key
+                      ? 'border-b-2 border-brand-500 text-brand-600 dark:text-brand-400'
+                      : 'border-b-2 border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
+                  }`}
                 >
-                  {item.images?.[0] || item.imageUrl ? (
-                    <img src={item.images?.[0] || item.imageUrl} alt="" className="h-9 w-9 rounded object-cover" />
-                  ) : (
-                    <span className="flex h-9 w-9 items-center justify-center rounded bg-brand-50 text-xs font-bold text-brand-500 dark:bg-brand-500/15 dark:text-brand-400">
-                      {item.name?.[0]?.toUpperCase()}
-                    </span>
+                  {t.label}
+                  {t.key === 'zone' && selected && (
+                    <span className="size-1.5 rounded-full bg-brand-500" />
                   )}
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-gray-800 dark:text-white/90">{item.name}</p>
-                    <p className="text-xs text-gray-400">{Number(item.price).toFixed(2)} CHF</p>
-                  </div>
-                </div>
+                </button>
               ))}
+              <button
+                type="button"
+                onClick={() => setPanelOpen(false)}
+                title="Masquer le panneau"
+                className="flex-none px-3 text-gray-400 transition-colors hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-200"
+              >
+                <CloseIcon className="size-4" />
+              </button>
             </div>
-          </aside>
-        )}
 
-        {isAdmin && screen && (
-          <aside className="overflow-hidden rounded-2xl border border-gray-200 bg-white lg:w-72 lg:flex-none dark:border-gray-800 dark:bg-white/[0.03]">
-            <div className="border-b border-gray-100 px-4 py-3 dark:border-gray-800">
-              <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">Presets</p>
-              <p className="text-xs text-gray-400">Sélection rapide de mise en page</p>
-            </div>
-            <div className="space-y-3 p-4">
-              {PRESETS.map((preset) => (
-                <div key={preset.key} className="rounded-xl border border-gray-200 p-3 dark:border-gray-700">
-                  {preset.zones ? (
-                    <button
-                      type="button"
-                      disabled={applying}
-                      onClick={() => applyPreset(preset.zones)}
-                      className="flex w-full items-center gap-3 text-left"
+            {panelTab === 'produits' && (
+              <>
+                <div className="space-y-3 border-b border-gray-100 p-4 dark:border-gray-800">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs text-gray-400">Glissez un produit vers une zone</p>
+                    <Badge size="sm" color="light">{filteredItems.length}</Badge>
+                  </div>
+                  <Input
+                    type="text"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder="Rechercher..."
+                  />
+                  <select
+                    value={catFilter}
+                    onChange={(e) => setCatFilter(e.target.value)}
+                    className="w-full rounded-lg border border-gray-300 bg-transparent px-3 py-2.5 text-sm text-gray-800 outline-none focus:border-brand-300 focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:text-white/90"
+                  >
+                    <option value="all">Toutes les catégories</option>
+                    {categories.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-4">
+                  {filteredItems.length === 0 && (
+                    <p className="text-sm text-gray-400">Aucun produit.</p>
+                  )}
+                  {filteredItems.map((item) => (
+                    <div
+                      key={item.id}
+                      draggable
+                      onDragStart={(e) => {
+                        e.dataTransfer.setData('text/plain', JSON.stringify({ type: 'item', id: item.id }))
+                        e.dataTransfer.effectAllowed = 'copy'
+                      }}
+                      className="flex cursor-grab items-center gap-3 rounded-lg border border-gray-200 bg-white p-2 transition-shadow hover:shadow-md dark:border-gray-700 dark:bg-gray-800 active:cursor-grabbing"
                     >
-                      <PresetThumb zones={preset.zones} />
-                      <span>
-                        <span className="block text-sm font-medium text-gray-800 dark:text-white/90">
-                          {preset.label}
+                      {item.images?.[0] || item.imageUrl ? (
+                        <img src={item.images?.[0] || item.imageUrl} alt="" className="h-9 w-9 rounded object-cover" />
+                      ) : (
+                        <span className="flex h-9 w-9 items-center justify-center rounded bg-brand-50 text-xs font-bold text-brand-500 dark:bg-brand-500/15 dark:text-brand-400">
+                          {item.name?.[0]?.toUpperCase()}
                         </span>
-                        <span className="block text-xs text-gray-400">{preset.description}</span>
-                      </span>
-                    </button>
-                  ) : (
-                    <div>
-                      <div className="flex items-center gap-3">
-                        <PresetThumb zones={[{ zoneType: 'grid', x: 0, y: 0, w: 12, h: 12 }]} />
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-gray-800 dark:text-white/90">{item.name}</p>
+                        <p className="text-xs text-gray-400">{item.price != null ? `${Number(item.price).toFixed(2)} CHF` : '—'}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {panelTab === 'presets' && (
+              <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
+                {PRESETS.map((preset) => (
+                  <div key={preset.key} className="rounded-xl border border-gray-200 p-3 dark:border-gray-700">
+                    {preset.zones ? (
+                      <button
+                        type="button"
+                        disabled={applying}
+                        onClick={() => applyPreset(preset.zones)}
+                        className="flex w-full items-center gap-3 text-left"
+                      >
+                        <PresetThumb zones={preset.zones} />
                         <span>
                           <span className="block text-sm font-medium text-gray-800 dark:text-white/90">
                             {preset.label}
                           </span>
                           <span className="block text-xs text-gray-400">{preset.description}</span>
                         </span>
+                      </button>
+                    ) : (
+                      <div>
+                        <div className="flex items-center gap-3">
+                          <PresetThumb zones={[{ zoneType: 'grid', x: 0, y: 0, w: 12, h: 12 }]} />
+                          <span>
+                            <span className="block text-sm font-medium text-gray-800 dark:text-white/90">
+                              {preset.label}
+                            </span>
+                            <span className="block text-xs text-gray-400">{preset.description}</span>
+                          </span>
+                        </div>
+                        <div className="mt-2 flex gap-2">
+                          {preset.variants.map((v) => (
+                            <button
+                              key={v.label}
+                              type="button"
+                              disabled={applying}
+                              onClick={() =>
+                                applyPreset([
+                                  {
+                                    name: 'Grille',
+                                    zoneType: 'grid',
+                                    gridConfig: { rows: v.rows, cols: v.cols },
+                                    x: 0,
+                                    y: 0,
+                                    w: 12,
+                                    h: 12,
+                                  },
+                                ])
+                              }
+                              className="rounded-md border border-gray-200 px-2.5 py-1 text-xs font-medium text-gray-600 transition-colors hover:border-brand-300 hover:text-brand-600 dark:border-gray-700 dark:text-gray-300"
+                            >
+                              {v.label}
+                            </button>
+                          ))}
+                        </div>
                       </div>
-                      <div className="mt-2 flex gap-2">
-                        {preset.variants.map((v) => (
-                          <button
-                            key={v.label}
-                            type="button"
-                            disabled={applying}
-                            onClick={() =>
-                              applyPreset([
-                                {
-                                  name: 'Grille',
-                                  zoneType: 'grid',
-                                  gridConfig: { rows: v.rows, cols: v.cols },
-                                  x: 0,
-                                  y: 0,
-                                  w: 12,
-                                  h: 12,
-                                },
-                              ])
-                            }
-                            className="rounded-md border border-gray-200 px-2.5 py-1 text-xs font-medium text-gray-600 transition-colors hover:border-brand-300 hover:text-brand-600 dark:border-gray-700 dark:text-gray-300"
-                          >
-                            {v.label}
-                          </button>
-                        ))}
-                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {panelTab === 'zone' &&
+              (selected ? (
+                <>
+                  <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3 dark:border-gray-800">
+                    <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">Config zone</p>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => deleteZone(selected.id)}
+                        title="Supprimer la zone"
+                        className="rounded-md p-1.5 text-gray-400 transition-colors hover:bg-error-50 hover:text-error-600 dark:hover:bg-error-500/10"
+                      >
+                        <TrashBinIcon className="size-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedId(null)}
+                        title="Désélectionner"
+                        className="rounded-md p-1.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800"
+                      >
+                        <CloseIcon className="size-4" />
+                      </button>
                     </div>
-                  )}
+                  </div>
+
+                  <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-4">
+                    <div>
+                      <Label htmlFor="zone-cfg-name">Nom</Label>
+                      <Input
+                        id="zone-cfg-name"
+                        type="text"
+                        value={selected.name || ''}
+                        onChange={(e) => patchZone(selected.id, { name: e.target.value })}
+                      />
+                    </div>
+
+                    <div>
+                      <Label>Type</Label>
+                      <Badge color={ZONE_TYPE_COLORS[selected.zoneType] || 'light'}>
+                        {ZONE_TYPE_LABELS[selected.zoneType] || selected.zoneType}
+                      </Badge>
+                    </div>
+
+                    {REQUIRES_GRID.includes(selected.zoneType) && (
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <Label htmlFor="zone-cfg-rows">Lignes</Label>
+                          <Input
+                            id="zone-cfg-rows"
+                            type="number"
+                            min="1"
+                            value={selected.gridConfig?.rows ?? 1}
+                            onChange={(e) => setGridField(selected, 'rows', e.target.value)}
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="zone-cfg-cols">Colonnes</Label>
+                          <Input
+                            id="zone-cfg-cols"
+                            type="number"
+                            min="1"
+                            value={selected.gridConfig?.cols ?? 1}
+                            onChange={(e) => setGridField(selected, 'cols', e.target.value)}
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    <div>
+                      <Label htmlFor="zone-cfg-template">Template de carte</Label>
+                      <select
+                        id="zone-cfg-template"
+                        value={selected.cardTemplate || 'default'}
+                        onChange={(e) => patchZone(selected.id, { cardTemplate: e.target.value })}
+                        className="w-full rounded-lg border border-gray-300 bg-transparent px-3 py-2.5 text-sm text-gray-800 outline-none focus:border-brand-300 focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:text-white/90"
+                      >
+                        {CARD_TEMPLATES.map((t) => (
+                          <option key={t} value={t}>
+                            {CARD_TEMPLATE_LABELS[t] || t}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="flex cursor-pointer items-center gap-3 text-sm font-medium text-gray-700 dark:text-gray-400">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(selected.badgeConfig)}
+                          onChange={(e) => toggleBadge(e.target.checked)}
+                          className="size-4 rounded border-gray-300 text-brand-500 focus:ring-brand-500"
+                        />
+                        Afficher un badge / label
+                      </label>
+
+                      {selected.badgeConfig ? (
+                        <div className="mt-3 space-y-3">
+                          <div>
+                            <Label htmlFor="zone-badge-text">Texte</Label>
+                            <Input
+                              id="zone-badge-text"
+                              type="text"
+                              value={selected.badgeConfig.text || ''}
+                              onChange={(e) => patchBadge({ text: e.target.value })}
+                              placeholder="Ex : PROMO, NOUVEAU..."
+                            />
+                          </div>
+
+                          <div>
+                            <Label htmlFor="zone-badge-price">Prix</Label>
+                            <Input
+                              id="zone-badge-price"
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={selected.badgeConfig.price ?? ''}
+                              onChange={(e) => patchBadge({ price: e.target.value })}
+                              placeholder="Ex : 8.50"
+                            />
+                          </div>
+
+                          <div>
+                            <Label htmlFor="zone-badge-style">Style</Label>
+                            <select
+                              id="zone-badge-style"
+                              value={selected.badgeConfig.style || 'torn-paper'}
+                              onChange={(e) => patchBadge({ style: e.target.value })}
+                              className="w-full rounded-lg border border-gray-300 bg-transparent px-3 py-2.5 text-sm text-gray-800 outline-none focus:border-brand-300 focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:text-white/90"
+                            >
+                              {BADGE_STYLES.map((s) => (
+                                <option key={s} value={s}>
+                                  {BADGE_STYLE_LABELS[s] || s}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <div>
+                            <Label htmlFor="zone-badge-position">Position</Label>
+                            <select
+                              id="zone-badge-position"
+                              value={selected.badgeConfig.position || 'top-right'}
+                              onChange={(e) => patchBadge({ position: e.target.value })}
+                              className="w-full rounded-lg border border-gray-300 bg-transparent px-3 py-2.5 text-sm text-gray-800 outline-none focus:border-brand-300 focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:text-white/90"
+                            >
+                              {BADGE_POSITIONS.map((p) => (
+                                <option key={p} value={p}>
+                                  {BADGE_POSITION_LABELS[p] || p}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="mt-2 text-xs text-gray-400">
+                          Badge désactivé. Activez pour afficher un label (texte et/ou prix) sur la zone.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="min-h-0 flex-1 p-4 text-sm text-gray-400">
+                  Cliquez sur une zone du canvas pour la configurer.
                 </div>
               ))}
-            </div>
+
+            {panelTab === 'style' &&
+              (selected ? (
+                <>
+                  <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3 dark:border-gray-800">
+                    <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">Style zone</p>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedId(null)}
+                      title="Désélectionner"
+                      className="rounded-md p-1.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800"
+                    >
+                      <CloseIcon className="size-4" />
+                    </button>
+                  </div>
+
+                  <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-4">
+                    <div>
+                      <Label>Fond</Label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => patchStyle({ dark: false, bg: undefined })}
+                          className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
+                            styleCfg.dark
+                              ? 'border-gray-200 text-gray-500 dark:border-gray-700 dark:text-gray-400'
+                              : 'border-brand-500 bg-brand-50 text-brand-600 dark:bg-brand-500/15 dark:text-brand-400'
+                          }`}
+                        >
+                          Clair
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => patchStyle({ dark: true, bg: undefined })}
+                          className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
+                            styleCfg.dark
+                              ? 'border-brand-500 bg-brand-50 text-brand-600 dark:bg-brand-500/15 dark:text-brand-400'
+                              : 'border-gray-200 text-gray-500 dark:border-gray-700 dark:text-gray-400'
+                          }`}
+                        >
+                          Sombre
+                        </button>
+                      </div>
+                    </div>
+
+                    <div>
+                      <Label htmlFor="zone-style-bgimage">Image de fond (remplit toute la zone)</Label>
+                      <div className="flex items-center gap-3">
+                        <label
+                          className={`flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-gray-300 px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:border-brand-300 hover:text-brand-600 dark:border-gray-700 dark:text-gray-300 dark:hover:text-brand-400 ${
+                            zoneImgUploading ? 'opacity-60' : ''
+                          }`}
+                        >
+                          {zoneImgUploading ? 'Upload...' : styleCfg.bgImage ? 'Changer l’image' : 'Importer une image'}
+                          <input
+                            id="zone-style-bgimage"
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={handleZoneImgUpload}
+                            disabled={zoneImgUploading}
+                          />
+                        </label>
+                        {styleCfg.bgImage ? (
+                          <button
+                            type="button"
+                            onClick={() => patchStyle({ bgImage: null })}
+                            className="text-sm font-medium text-error-600 hover:text-error-700 dark:text-error-400"
+                          >
+                            Retirer
+                          </button>
+                        ) : null}
+                      </div>
+                      {styleCfg.bgImage ? (
+                        <img
+                          src={styleCfg.bgImage}
+                          alt="Fond de la zone"
+                          className="mt-2 h-24 w-full rounded-lg border border-gray-200 object-cover dark:border-gray-700"
+                        />
+                      ) : null}
+                    </div>
+
+                    {[
+                      { key: 'bg', label: 'Couleur fond' },
+                      { key: 'text', label: 'Couleur texte' },
+                      { key: 'accent', label: 'Couleur accent' },
+                    ].map(({ key, label }) => {
+                      const defaultValue =
+                        key === 'bg'
+                          ? styleCfg.dark
+                            ? STYLE_DEFAULTS.bgDark
+                            : STYLE_DEFAULTS.bgLight
+                          : key === 'text'
+                            ? styleCfg.dark
+                              ? STYLE_DEFAULTS.textDark
+                              : STYLE_DEFAULTS.textLight
+                            : STYLE_DEFAULTS.accent
+                      return (
+                        <div key={key}>
+                          <Label htmlFor={`zone-style-${key}`}>{label}</Label>
+                          <div className="flex items-center gap-2">
+                            <input
+                              id={`zone-style-${key}`}
+                              type="color"
+                              value={styleCfg[key] || defaultValue}
+                              onChange={(e) => patchStyle({ [key]: e.target.value })}
+                              className="h-10 w-14 cursor-pointer rounded-md border border-gray-300 bg-transparent p-1 dark:border-gray-700"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => patchStyle({ [key]: undefined })}
+                              className="rounded-md border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-500 transition-colors hover:border-brand-300 hover:text-brand-600 dark:border-gray-700 dark:text-gray-400"
+                            >
+                              Défaut
+                            </button>
+                          </div>
+                        </div>
+                      )
+                    })}
+
+                    <div>
+                      <Label htmlFor="zone-style-font">Taille de police</Label>
+                      <select
+                        id="zone-style-font"
+                        value={styleCfg.fontSize || ''}
+                        onChange={(e) =>
+                          patchStyle({ fontSize: e.target.value ? Number(e.target.value) : undefined })
+                        }
+                        className="w-full rounded-lg border border-gray-300 bg-transparent px-3 py-2.5 text-sm text-gray-800 outline-none focus:border-brand-300 focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:text-white/90"
+                      >
+                        <option value="">Par défaut</option>
+                        {FONT_SIZES.map((s) => (
+                          <option key={s} value={s}>
+                            {s}px
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <Label htmlFor="zone-style-badge">Style du badge</Label>
+                      <select
+                        id="zone-style-badge"
+                        value={badge.style || 'torn-paper'}
+                        onChange={(e) => patchBadge({ style: e.target.value })}
+                        className="w-full rounded-lg border border-gray-300 bg-transparent px-3 py-2.5 text-sm text-gray-800 outline-none focus:border-brand-300 focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:text-white/90"
+                      >
+                        {BADGE_STYLES.map((s) => (
+                          <option key={s} value={s}>
+                            {BADGE_STYLE_LABELS[s] || s}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {Object.keys(styleCfg).some((k) => k !== 'dark' && styleCfg[k] !== undefined && styleCfg[k] !== null) ||
+                    styleCfg.dark !== undefined ? (
+                      <button
+                        type="button"
+                        onClick={resetStyle}
+                        className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:border-error-300 hover:text-error-600 dark:border-gray-700 dark:text-gray-300"
+                      >
+                        Réinitialiser le style
+                      </button>
+                    ) : null}
+                  </div>
+                </>
+              ) : (
+                <div className="min-h-0 flex-1 p-4 text-sm text-gray-400">
+                  Sélectionnez une zone pour la styler.
+                </div>
+              ))}
           </aside>
         )}
 
@@ -982,9 +1836,35 @@ function ScreenLayoutCanvas() {
             <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200">
               Canvas — {GRID}×{GRID}
             </h3>
-            <Badge size="sm" color="light">
-              {layout.zones?.length ?? 0} zone{(layout.zones?.length ?? 0) > 1 ? 's' : ''}
-            </Badge>
+            <div className="flex items-center gap-2">
+              <div className="flex rounded-lg border border-gray-200 p-0.5 dark:border-gray-700">
+                <button
+                  type="button"
+                  onClick={() => setPreviewMode(false)}
+                  className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
+                    !previewMode
+                      ? 'bg-brand-500 text-white'
+                      : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
+                  }`}
+                >
+                  Wireframe
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPreviewMode(true)}
+                  className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
+                    previewMode
+                      ? 'bg-brand-500 text-white'
+                      : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
+                  }`}
+                >
+                  Aperçu
+                </button>
+              </div>
+              <Badge size="sm" color="light">
+                {layout.zones?.length ?? 0} zone{(layout.zones?.length ?? 0) > 1 ? 's' : ''}
+              </Badge>
+            </div>
           </div>
 
           <div className="p-6">
@@ -994,8 +1874,12 @@ function ScreenLayoutCanvas() {
                 if (e.target === canvasRef.current) setSelectedId(null)
               }}
               className="relative w-full select-none overflow-hidden rounded-lg border-2 border-gray-300 bg-gray-900 shadow-xl dark:border-gray-700"
-              style={{ aspectRatio: '16 / 9' }}
+              style={{
+                aspectRatio: '16 / 9',
+                ...(previewMode && screenBg ? backgroundCss(screenBg) : {}),
+              }}
             >
+              <BackgroundOverlays bg={previewMode ? screenBg : null} />
               {(layout.zones || []).map((zone) => {
                 const active = gesture?.zoneId === zone.id
                 const rect = active ? gesture.rect : zone
@@ -1021,6 +1905,13 @@ function ScreenLayoutCanvas() {
                           it.col >= cols
                       )))
                 const zoneWarnLabel = zoneEmpty ? 'Zone vide' : zoneOverflow ? 'Grille saturée' : null
+
+                // T7.4 — live style preview from the zone's backgroundStyle JSON
+                const zStyle = zone.backgroundStyle || {}
+                const zAccent = zStyle.accent || STYLE_DEFAULTS.accent
+                const zBg = zStyle.bg || (zStyle.dark ? STYLE_DEFAULTS.bgDark : STYLE_DEFAULTS.bgLight)
+                const zText = zStyle.text || (zStyle.dark ? STYLE_DEFAULTS.textDark : STYLE_DEFAULTS.textLight)
+                const zFontSize = zStyle.fontSize || null
 
                 const slotDnD = (key, { targetRow, targetCol, targetIndex }, paletteAware) => ({
                   onDragOver: (e) => {
@@ -1059,7 +1950,42 @@ function ScreenLayoutCanvas() {
                 const slotActive = (key) =>
                   dropTarget && dropTarget.zoneId === zone.id && dropTarget.key === key
 
-                return (
+                return previewMode ? (
+                  <div
+                    key={zone.id}
+                    className="absolute flex flex-col overflow-hidden rounded-md border border-gray-700 p-1"
+                    style={{
+                      left: pct(zone.x),
+                      top: pct(zone.y),
+                      width: pct(zone.w),
+                      height: pct(zone.h),
+                      backgroundColor: zStyle.bgImage ? undefined : zBg,
+                      color: zText,
+                      fontSize: zFontSize || 12,
+                    }}
+                  >
+                    {zStyle.bgImage ? (
+                      <img
+                        src={zStyle.bgImage}
+                        alt=""
+                        className="absolute inset-0 h-full w-full object-cover"
+                      />
+                    ) : null}
+                    <div className="relative z-10 flex min-h-0 flex-1 flex-col">
+                      {(zone.zoneType === 'grid' || zone.zoneType === 'list' || zone.zoneType === 'menu' || zone.zoneType === 'carousel') &&
+                      zone.name ? (
+                        <span
+                          className="mb-0.5 truncate font-bold uppercase tracking-wide"
+                          style={{ color: zAccent, fontSize: '0.9em' }}
+                        >
+                          {zone.name}
+                        </span>
+                      ) : null}
+                      <StyledZoneContent zone={zone} accent={zAccent} />
+                    </div>
+                    <ZoneBadgePreview config={zone.badgeConfig} accent={zAccent} />
+                  </div>
+                ) : (
                   <div
                     key={zone.id}
                     onPointerDown={(e) => isAdmin && startMove(e, zone)}
@@ -1086,7 +2012,7 @@ function ScreenLayoutCanvas() {
                     className={`absolute flex flex-col overflow-hidden rounded-md border p-1.5 transition-colors ${
                       clash
                         ? 'border-error-500 bg-error-50/90 ring-2 ring-error-500/50 dark:bg-error-500/20'
-                        : 'border-gray-700 bg-white dark:bg-gray-800'
+                        : 'border-gray-700'
                     } ${isAdmin ? 'cursor-move' : ''} ${
                       active && !clash
                         ? 'ring-2 ring-brand-500/60'
@@ -1099,13 +2025,19 @@ function ScreenLayoutCanvas() {
                       top: pct(rect.y),
                       width: pct(rect.w),
                       height: pct(rect.h),
+                      backgroundColor: clash ? undefined : zBg,
+                      color: zText,
+                      fontSize: zFontSize || 12,
                     }}
                   >
                     <div className="flex flex-none items-start justify-between gap-1">
-                      <p className="truncate text-xs font-semibold text-gray-800 dark:text-white/90">
+                      <p
+                        className="truncate font-semibold"
+                        style={{ color: zAccent }}
+                      >
                         {zone.name || `Zone #${zone.id}`}
                       </p>
-                      <span className="rounded bg-gray-200 px-1 py-px text-[9px] font-medium uppercase text-gray-600 dark:bg-gray-700 dark:text-gray-300">
+                      <span className="rounded px-1 py-px text-[9px] font-medium uppercase text-gray-600 dark:text-gray-300" style={{ backgroundColor: 'rgba(0,0,0,0.15)' }}>
                         {ZONE_TYPE_LABELS[zone.zoneType] || zone.zoneType}
                       </span>
                       {zoneWarnLabel && (
@@ -1114,6 +2046,8 @@ function ScreenLayoutCanvas() {
                         </span>
                       )}
                     </div>
+
+                    <ZoneBadgePreview config={zone.badgeConfig} accent={zAccent} />
 
                     {(isGrid || isList) && (zone.items?.length ?? 0) > 0 ? (
                       isGrid ? (
@@ -1134,21 +2068,41 @@ function ScreenLayoutCanvas() {
                                   onPointerDown={(e) => e.stopPropagation()}
                                   onDragStart={(e) => {
                                     e.stopPropagation()
+                                    setZoneDrag(true)
                                     e.dataTransfer.setData(
                                       'text/plain',
                                       JSON.stringify({ source: 'zone', type: 'item', id: item.itemId, zoneId: zone.id })
                                     )
                                     e.dataTransfer.effectAllowed = 'move'
                                   }}
+                                  onDragEnd={() => setZoneDrag(false)}
                                   {...slotDnD(key, { targetRow: r, targetCol: c }, false)}
                                   title={item.item?.name}
-                                  className={`flex min-w-0 items-center justify-center rounded border px-0.5 py-0.5 text-[9px] font-medium leading-tight ${
+                                  className={`group relative min-w-0 rounded border text-[9px] font-medium leading-tight ${
                                     slotActive(key)
                                       ? 'border-brand-500 bg-brand-500/15 text-brand-600 dark:text-brand-400'
                                       : 'border-gray-300 bg-gray-100 text-gray-700 dark:border-gray-600 dark:bg-gray-700 dark:text-white/90'
                                   } ${isAdmin ? 'cursor-grab active:cursor-grabbing' : ''}`}
                                 >
-                                  <span className="truncate">{item.item?.name}</span>
+                                  <CardTemplatePreview
+                                    template={zone.cardTemplate}
+                                    name={item.item?.name}
+                                    accent={zAccent}
+                                  />
+                                  {isAdmin && (
+                                    <button
+                                      type="button"
+                                      onPointerDown={(e) => e.stopPropagation()}
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        removeZoneItem(zone.id, item.itemId)
+                                      }}
+                                      title="Retirer le produit"
+                                      className="absolute -right-1 -top-1 z-10 flex size-3.5 items-center justify-center rounded-full bg-error-500 text-[9px] font-bold leading-none text-white opacity-0 shadow transition-opacity hover:bg-error-600 group-hover:opacity-100"
+                                    >
+                                      ×
+                                    </button>
+                                  )}
                                 </div>
                               )
                             }
@@ -1178,21 +2132,43 @@ function ScreenLayoutCanvas() {
                                 onPointerDown={(e) => e.stopPropagation()}
                                 onDragStart={(e) => {
                                   e.stopPropagation()
+                                  setZoneDrag(true)
                                   e.dataTransfer.setData(
                                     'text/plain',
                                     JSON.stringify({ source: 'zone', type: 'item', id: item.itemId, zoneId: zone.id })
                                   )
                                   e.dataTransfer.effectAllowed = 'move'
                                 }}
+                                onDragEnd={() => setZoneDrag(false)}
                                 {...slotDnD(key, { targetIndex: item.index }, true)}
                                 title={item.item?.name}
-                                className={`flex items-center gap-1 truncate rounded border px-1 py-0.5 text-[9px] font-medium ${
+                                className={`group relative min-w-0 rounded border text-[9px] font-medium ${
                                   slotActive(key)
                                     ? 'border-brand-500 bg-brand-500/15 text-brand-600 dark:text-brand-400'
                                     : 'border-gray-300 bg-gray-100 text-gray-700 dark:border-gray-600 dark:bg-gray-700 dark:text-white/90'
                                 } ${isAdmin ? 'cursor-grab active:cursor-grabbing' : ''}`}
                               >
-                                <span className="truncate">{item.item?.name}</span>
+                                <div className="h-5 min-w-0">
+                                  <CardTemplatePreview
+                                    template={zone.cardTemplate}
+                                    name={item.item?.name}
+                                    accent={zAccent}
+                                  />
+                                </div>
+                                {isAdmin && (
+                                  <button
+                                    type="button"
+                                    onPointerDown={(e) => e.stopPropagation()}
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      removeZoneItem(zone.id, item.itemId)
+                                    }}
+                                    title="Retirer le produit"
+                                    className="absolute -right-1 -top-1 z-10 flex size-3.5 items-center justify-center rounded-full bg-error-500 text-[9px] font-bold leading-none text-white opacity-0 shadow transition-opacity hover:bg-error-600 group-hover:opacity-100"
+                                  >
+                                    ×
+                                  </button>
+                                )}
                               </div>
                             )
                           })}
@@ -1238,6 +2214,41 @@ function ScreenLayoutCanvas() {
                 )
               })}
 
+              {isAdmin && (
+                <div
+                  onDragOver={(e) => {
+                    if (!zoneDrag) return
+                    e.preventDefault()
+                    setTrashOver(true)
+                  }}
+                  onDragLeave={() => setTrashOver(false)}
+                  onDrop={(e) => {
+                    e.preventDefault()
+                    setTrashOver(false)
+                    let payload = null
+                    try {
+                      payload = JSON.parse(e.dataTransfer.getData('text/plain'))
+                    } catch {
+                      return
+                    }
+                    if (payload?.type === 'item' && payload.source === 'zone') {
+                      removeZoneItem(payload.zoneId, payload.id)
+                    }
+                  }}
+                  title="Glissez un produit ici pour le retirer de la zone"
+                  className={`absolute bottom-2 right-2 z-20 flex items-center gap-1.5 rounded-full border px-3 py-2 text-xs font-semibold transition-all ${
+                    trashOver
+                      ? 'scale-105 border-error-500 bg-error-500 text-white shadow-lg ring-2 ring-error-500/30'
+                      : zoneDrag
+                        ? 'border-dashed border-error-400/80 bg-error-500/10 text-error-500'
+                        : 'pointer-events-none opacity-0'
+                  }`}
+                >
+                  <TrashBinIcon className="size-4" />
+                  Retirer
+                </div>
+              )}
+
               {(layout.zones || []).length === 0 && (
                 <p className="flex h-full items-center justify-center text-sm text-gray-400">
                   Aucune zone. Cliquez sur « Ajouter une zone ».
@@ -1256,120 +2267,6 @@ function ScreenLayoutCanvas() {
             {creating ? 'Création...' : 'Créer un layout'}
           </Button>
         </div>
-      )}
-
-      {isAdmin && selected && (
-        <aside className="overflow-hidden rounded-2xl border border-gray-200 bg-white lg:w-72 lg:flex-none dark:border-gray-800 dark:bg-white/[0.03]">
-          <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3 dark:border-gray-800">
-            <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">Config zone</p>
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                onClick={() => deleteZone(selected.id)}
-                title="Supprimer la zone"
-                className="rounded-md p-1.5 text-gray-400 transition-colors hover:bg-error-50 hover:text-error-600 dark:hover:bg-error-500/10"
-              >
-                <TrashBinIcon className="size-4" />
-              </button>
-              <button
-                type="button"
-                onClick={() => setSelectedId(null)}
-                title="Fermer"
-                className="rounded-md p-1.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800"
-              >
-                <CloseIcon className="size-4" />
-              </button>
-            </div>
-          </div>
-
-          <div className="space-y-5 p-4">
-            <div>
-              <Label htmlFor="zone-cfg-name">Nom</Label>
-              <Input
-                id="zone-cfg-name"
-                type="text"
-                value={selected.name || ''}
-                onChange={(e) => patchZone(selected.id, { name: e.target.value })}
-              />
-            </div>
-
-            <div>
-              <Label>Type</Label>
-              <Badge color={ZONE_TYPE_COLORS[selected.zoneType] || 'light'}>
-                {ZONE_TYPE_LABELS[selected.zoneType] || selected.zoneType}
-              </Badge>
-            </div>
-
-            {REQUIRES_GRID.includes(selected.zoneType) && (
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="zone-cfg-rows">Lignes</Label>
-                  <Input
-                    id="zone-cfg-rows"
-                    type="number"
-                    min="1"
-                    value={selected.gridConfig?.rows ?? 1}
-                    onChange={(e) => setGridField(selected, 'rows', e.target.value)}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="zone-cfg-cols">Colonnes</Label>
-                  <Input
-                    id="zone-cfg-cols"
-                    type="number"
-                    min="1"
-                    value={selected.gridConfig?.cols ?? 1}
-                    onChange={(e) => setGridField(selected, 'cols', e.target.value)}
-                  />
-                </div>
-              </div>
-            )}
-
-            <div>
-              <Label htmlFor="zone-cfg-template">Template de carte</Label>
-              <select
-                id="zone-cfg-template"
-                value={selected.cardTemplate || 'default'}
-                onChange={(e) => patchZone(selected.id, { cardTemplate: e.target.value })}
-                className="w-full rounded-lg border border-gray-300 bg-transparent px-3 py-2.5 text-sm text-gray-800 outline-none focus:border-brand-300 focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:text-white/90"
-              >
-                {CARD_TEMPLATES.map((t) => (
-                  <option key={t} value={t}>
-                    {CARD_TEMPLATE_LABELS[t] || t}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <Label>Fond</Label>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => patchZone(selected.id, { backgroundStyle: { dark: false } })}
-                  className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
-                    selected.backgroundStyle?.dark
-                      ? 'border-gray-200 text-gray-500 dark:border-gray-700 dark:text-gray-400'
-                      : 'border-brand-500 bg-brand-50 text-brand-600 dark:bg-brand-500/15 dark:text-brand-400'
-                  }`}
-                >
-                  Clair
-                </button>
-                <button
-                  type="button"
-                  onClick={() => patchZone(selected.id, { backgroundStyle: { dark: true } })}
-                  className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
-                    selected.backgroundStyle?.dark
-                      ? 'border-brand-500 bg-brand-50 text-brand-600 dark:bg-brand-500/15 dark:text-brand-400'
-                      : 'border-gray-200 text-gray-500 dark:border-gray-700 dark:text-gray-400'
-                  }`}
-                >
-                  Sombre
-                </button>
-              </div>
-            </div>
-          </div>
-        </aside>
       )}
       </div>
 
@@ -1496,6 +2393,167 @@ function ScreenLayoutCanvas() {
           <Button type="button" onClick={submitZone} disabled={savingZone}>
             {savingZone ? 'Création...' : 'Ajouter'}
           </Button>
+        </div>
+      </Modal>
+
+      <Modal isOpen={bgOpen} onClose={() => setBgOpen(false)} className="max-w-lg p-6">
+        <h3 className="mb-1 text-lg font-semibold text-gray-800 dark:text-white/90">
+          Fond de l’écran
+        </h3>
+        <p className="mb-5 text-sm text-gray-500 dark:text-gray-400">
+          Image de fond ou découpe bicolore 50/50 (style menu scanné), avec une texture
+          papier déchiré en option.
+        </p>
+
+        <div className="space-y-5">
+          <div className="relative aspect-video w-full overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700">
+            <div className="absolute inset-0" style={backgroundCss(bgForm)} />
+            <BackgroundOverlays bg={bgForm} />
+          </div>
+
+          <div>
+            <Label>Type de fond</Label>
+            <div className="flex flex-wrap gap-2">
+              {BG_TYPES.map((key) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setBgForm((prev) => ({ ...(prev || BG_DEFAULTS), type: key }))}
+                  className={`rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors ${
+                    (bgForm?.type || 'split') === key
+                      ? 'border-brand-500 bg-brand-50 text-brand-600 dark:bg-brand-500/15 dark:text-brand-400'
+                      : 'border-gray-200 text-gray-600 hover:border-brand-300 dark:border-gray-700 dark:text-gray-300'
+                  }`}
+                >
+                  {BG_TYPE_LABELS[key]}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {bgForm?.type === 'image' ? (
+            <div>
+              <Label>Image de fond</Label>
+              <div className="flex items-center gap-3">
+                <label
+                  className={`flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-gray-300 px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:border-brand-300 hover:text-brand-600 dark:border-gray-700 dark:text-gray-300 dark:hover:text-brand-400 ${
+                    bgUploading ? 'opacity-60' : ''
+                  }`}
+                >
+                  {bgUploading ? 'Upload...' : 'Importer une image'}
+                  <input type="file" accept="image/*" className="hidden" onChange={handleBgUpload} disabled={bgUploading} />
+                </label>
+                {bgForm?.imageUrl && (
+                  <button
+                    type="button"
+                    onClick={() => setBgForm((prev) => ({ ...prev, imageUrl: null }))}
+                    className="text-sm font-medium text-error-600 hover:text-error-700 dark:text-error-400"
+                  >
+                    Retirer l’image
+                  </button>
+                )}
+              </div>
+              {bgForm?.imageUrl && (
+                <img
+                  src={bgForm.imageUrl}
+                  alt="Aperçu du fond"
+                  className="mt-2 h-24 w-full rounded-lg border border-gray-200 object-cover dark:border-gray-700"
+                />
+              )}
+            </div>
+          ) : (
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <Label>Moitié sombre</Label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="color"
+                    value={bgForm?.dark || BG_DEFAULTS.dark}
+                    onChange={(e) => setBgForm((prev) => ({ ...(prev || BG_DEFAULTS), dark: e.target.value }))}
+                    className="size-9 cursor-pointer rounded border border-gray-300 bg-transparent p-0.5 dark:border-gray-700"
+                  />
+                  <span className="text-xs text-gray-500 dark:text-gray-400">{bgForm?.dark || BG_DEFAULTS.dark}</span>
+                </div>
+              </div>
+              <div>
+                <Label>Moitié claire</Label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="color"
+                    value={bgForm?.light || BG_DEFAULTS.light}
+                    onChange={(e) => setBgForm((prev) => ({ ...(prev || BG_DEFAULTS), light: e.target.value }))}
+                    className="size-9 cursor-pointer rounded border border-gray-300 bg-transparent p-0.5 dark:border-gray-700"
+                  />
+                  <span className="text-xs text-gray-500 dark:text-gray-400">{bgForm?.light || BG_DEFAULTS.light}</span>
+                </div>
+              </div>
+              <div>
+                <Label>Angle</Label>
+                <input
+                  type="range"
+                  min="0"
+                  max="180"
+                  step="5"
+                  value={bgForm?.angle ?? BG_DEFAULTS.angle}
+                  onChange={(e) => setBgForm((prev) => ({ ...(prev || BG_DEFAULTS), angle: Number(e.target.value) }))}
+                  className="w-full accent-brand-500"
+                />
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  {bgForm?.angle ?? BG_DEFAULTS.angle}° — 0° vertical, 90° horizontal
+                </p>
+              </div>
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label htmlFor="bg-pattern">Texture</Label>
+              <select
+                id="bg-pattern"
+                value={bgForm?.pattern || 'none'}
+                onChange={(e) => setBgForm((prev) => ({ ...(prev || BG_DEFAULTS), pattern: e.target.value }))}
+                className="w-full rounded-lg border border-gray-300 bg-transparent px-3 py-2.5 text-sm text-gray-800 outline-none focus:border-brand-300 focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:text-white/90"
+              >
+                {BG_PATTERNS.map((p) => (
+                  <option key={p} value={p}>
+                    {BG_PATTERN_LABELS[p]}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {bgForm?.pattern === 'torn-paper' && (
+              <div>
+                <Label>Couleur de la déchirure</Label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="color"
+                    value={bgForm?.patternColor || BG_DEFAULTS.patternColor}
+                    onChange={(e) => setBgForm((prev) => ({ ...(prev || BG_DEFAULTS), patternColor: e.target.value }))}
+                    className="size-9 cursor-pointer rounded border border-gray-300 bg-transparent p-0.5 dark:border-gray-700"
+                  />
+                  <span className="text-xs text-gray-500 dark:text-gray-400">{bgForm?.patternColor || BG_DEFAULTS.patternColor}</span>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="mt-6 flex items-center justify-between gap-3">
+          {screenBg ? (
+            <Button type="button" variant="outline" onClick={removeBackground} disabled={bgSaving}>
+              Retirer le fond
+            </Button>
+          ) : (
+            <span />
+          )}
+          <div className="flex gap-3">
+            <Button type="button" variant="outline" onClick={() => setBgOpen(false)}>
+              Annuler
+            </Button>
+            <Button type="button" onClick={saveBackground} disabled={bgSaving}>
+              {bgSaving ? 'Enregistrement...' : 'Enregistrer'}
+            </Button>
+          </div>
         </div>
       </Modal>
     </div>

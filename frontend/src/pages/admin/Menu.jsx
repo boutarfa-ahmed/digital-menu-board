@@ -73,7 +73,7 @@ function Menu() {
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState(null)
   const [form, setForm] = useState(EMPTY_FORM)
-  const [imageInput, setImageInput] = useState('')
+  const [uploading, setUploading] = useState(false)
   const [dragState, setDragState] = useState(null)
 
   useEffect(() => {
@@ -119,7 +119,6 @@ function Menu() {
     setEditing(null)
     setForm(EMPTY_FORM)
     setError('')
-    setImageInput('')
     setModalOpen(true)
   }
 
@@ -135,7 +134,6 @@ function Menu() {
       images: Array.isArray(item.images) ? [...item.images] : [],
     })
     setError('')
-    setImageInput('')
     setModalOpen(true)
   }
 
@@ -148,11 +146,25 @@ function Menu() {
     }))
   }
 
-  const addImage = () => {
-    const url = imageInput.trim()
-    if (!url) return
-    setForm((prev) => ({ ...prev, images: [...prev.images, url] }))
-    setImageInput('')
+  const handleFileUpload = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    setUploading(true)
+    setError('')
+    try {
+      const fd = new FormData()
+      fd.append('image', file)
+      const { data } = await api.post('/upload', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      setForm((prev) => ({ ...prev, images: [...prev.images, data.url] }))
+    } catch (err) {
+      setError(err.response?.data?.error || "Échec de l'upload de l'image")
+    } finally {
+      setUploading(false)
+      e.target.value = ''
+    }
   }
 
   const removeImage = (index) => {
@@ -170,7 +182,7 @@ function Menu() {
     const payload = {
       name: form.name.trim(),
       description: form.description.trim() || null,
-      price: Number(form.price),
+      price: form.price === '' || form.price == null ? null : Number(form.price),
       categoryId: Number(form.categoryId),
       status: form.status,
       tags: form.tags,
@@ -393,7 +405,7 @@ function Menu() {
                           </div>
                         </TableCell>
                         <TableCell className="px-6 py-4 text-sm font-medium text-gray-800 dark:text-white/90">
-                          {Number(item.price).toFixed(2)} CHF
+                          {item.price != null ? `${Number(item.price).toFixed(2)} CHF` : '—'}
                         </TableCell>
                         <TableCell className="px-6 py-4">
                           <div className="flex items-center gap-2">
@@ -486,9 +498,11 @@ function Menu() {
                 min="0"
                 value={form.price}
                 onChange={(e) => setForm({ ...form, price: e.target.value })}
-                placeholder="9.50"
-                required
+                placeholder="9.50 (laisser vide si sans prix)"
               />
+              <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
+                Optionnel — laissez vide pour les sauces, extras, etc.
+              </p>
             </div>
             <div>
               <Label htmlFor="menu-cat">Catégorie</Label>
@@ -528,16 +542,19 @@ function Menu() {
 
           <div>
             <Label>Images</Label>
-            <div className="flex gap-2">
-              <Input
-                type="text"
-                value={imageInput}
-                onChange={(e) => setImageInput(e.target.value)}
-                placeholder="https://.../image.jpg"
+            <div className="flex items-center gap-3">
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/gif"
+                onChange={handleFileUpload}
+                disabled={uploading}
+                className="h-11 w-full cursor-pointer rounded-lg border border-gray-300 bg-transparent text-sm text-gray-500 shadow-theme-xs transition-colors file:mr-3 file:cursor-pointer file:rounded-l-lg file:border-0 file:border-r file:border-solid file:border-gray-200 file:bg-gray-50 file:px-3.5 file:py-3 file:text-sm file:text-gray-700 hover:file:bg-gray-100 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-400 dark:file:border-gray-800 dark:file:bg-white/[0.03] dark:file:text-gray-400"
               />
-              <Button type="button" variant="outline" onClick={addImage} className="shrink-0">
-                Ajouter
-              </Button>
+              {uploading && (
+                <span className="shrink-0 text-sm text-gray-500 dark:text-gray-400">
+                  Upload...
+                </span>
+              )}
             </div>
             {form.images.length > 0 && (
               <div className="mt-3 flex flex-wrap gap-2">

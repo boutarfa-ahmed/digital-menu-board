@@ -139,7 +139,7 @@ function Dashboard() {
                       {item.category?.name || '—'}
                     </TableCell>
                     <TableCell className="px-6 py-4 text-sm font-medium text-gray-800 dark:text-white/90">
-                      {Number(item.price).toFixed(2)} CHF
+                      {item.price != null ? `${Number(item.price).toFixed(2)} CHF` : '—'}
                     </TableCell>
                     <TableCell className="px-6 py-4">
                       {STATUS_BADGE[item.status] ? (

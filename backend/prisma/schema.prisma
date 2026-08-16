@@ -21,7 +21,7 @@ model MenuItem {
   id          Int      @id @default(autoincrement())
   name        String
   description String?
-  price       Float
+  price       Float?
   imageUrl    String?       // cover image (legacy)
   images      String   @default("[]") // JSON array of image URLs
   tags        String   @default("[]") // JSON array: "spicy", "vegan", "promo"
@@ -69,10 +69,24 @@ model Screen {
   createdAt  DateTime @default(now())
 }
 
+model Theme {
+  id         Int            @id @default(autoincrement())
+  name       String         @unique // e.g. "Défaut Galaxy Food"
+  isDefault  Boolean        @default(false) // fallback theme used when a layout has no themeId
+  colors     String         @default("{}") // JSON: { primary, secondary, bgDark, bgLight, accent, text }
+  fonts      String         @default("{}") // JSON: { heading, body }
+  badgeStyle String         @default("torn-paper") // "torn-paper" | "rounded" | "ribbon"
+  layouts    ScreenLayout[]
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @default(now())
+}
+
 model ScreenLayout {
   id        Int      @id @default(autoincrement())
   screenId  Int      @unique // one layout per screen (for now)
   screen    Screen   @relation(fields: [screenId], references: [id], onDelete: Cascade)
+  themeId   Int?     // optional — falls back to the default theme
+  theme     Theme?   @relation(fields: [themeId], references: [id], onDelete: SetNull)
   name      String?  // optional label, e.g. "Layout principal"
   status    String   @default("draft") // "draft" | "published" — live TV only renders published
   settings  String   @default("{}") // JSON: showPrices, showImages, refreshInterval...
@@ -81,6 +95,7 @@ model ScreenLayout {
   updatedAt DateTime @default(now())
 
   @@index([screenId])
+  @@index([themeId])
 }
 
 model Zone {
@@ -92,6 +107,7 @@ model Zone {
   gridConfig      String   @default("{}") // JSON: { rows, cols } for the zone's inner grid
   cardTemplate    String   @default("default") // "default" | "compact" | "large" | "minimal"
   backgroundStyle String?  // optional JSON/CSS background (color, image)
+  badgeConfig     String?  // JSON: { text, price, style, position } — zone badge/label overlay (T7.3)
   x               Int      @default(0) // position on the screen's global grid
   y               Int      @default(0)
   w               Int      @default(1) // width in grid columns
