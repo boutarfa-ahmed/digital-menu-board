@@ -1,7 +1,7 @@
 import { cardFields, templateStyle } from './cardUtils.js'
 import CardBadge from './CardBadge.jsx'
 import ImageFallback from './ImageFallback.jsx'
-import PriceBadge from '../ui/PriceBadge.jsx'
+import PriceBadge from '../primitives/PriceBadge.jsx'
 import { badgeStyleOf } from '../../theme/designTokens'
 
 // list-row-price-qty template: thumbnail — name — qty badge — right-aligned

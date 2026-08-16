@@ -254,3 +254,17 @@ When `agent-tv` executes code within `frontend-tv`, ensure compliance with the f
 4. **WebSocket / Polling State Management**:
    - Listen for real-time updates from the dashboard (e.g. price change, out-of-stock items, layout switch).
    - Re-render menu components seamlessly without page reloads.
+Component: TornEdge.jsx
+Location: frontend-tv/src/components/primitives/TornEdge.jsx
+Props: { position: 'top'|'bottom'|'left'|'right', color: string, className?: string }
+Implementation: CSS clip-path polygon (NOT image asset) — 
+generate a jagged/torn paper edge effect on one side of a div.
+Must be reusable inside both CategoryBanner and panel dividers.
+Reference visual: torn white paper edge over orange background (street-food menu aesthetic).
+
+Component: PriceBadge.jsx  
+Location: frontend-tv/src/components/primitives/PriceBadge.jsx
+Props: { price: number, currency?: string }
+Implementation: black rounded-rect badge, price in Anton font,
+decimals as superscript, currency symbol after.
+Format: "12,90€" style (comma decimal, currency after).
