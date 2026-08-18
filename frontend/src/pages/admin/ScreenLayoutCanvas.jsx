@@ -1166,16 +1166,16 @@ function ScreenLayoutCanvas() {
     setError('')
     try {
       const settings = { ...(layout.settings || {}) }
-      if (bgForm && (bgForm.type || bgForm.pattern || bgForm.imageUrl)) {
-        settings.background = {
-          ...BG_DEFAULTS,
-          ...bgForm,
-          angle: Number(bgForm.angle) || 0,
-          pattern: BG_PATTERNS.includes(bgForm.pattern) ? bgForm.pattern : 'none',
-        }
-      } else {
-        settings.background = null
-      }
+      // Only a real image is a valid screen background (image type);
+      // without one the background is simply removed.
+      settings.background = bgForm?.imageUrl
+        ? {
+            type: 'image',
+            imageUrl: bgForm.imageUrl,
+            pattern: BG_PATTERNS.includes(bgForm.pattern) ? bgForm.pattern : 'none',
+            patternColor: bgForm.patternColor || BG_DEFAULTS.patternColor,
+          }
+        : null
       await api.put(`/screens/${id}/layout`, { settings })
       await load()
       setBgOpen(false)
