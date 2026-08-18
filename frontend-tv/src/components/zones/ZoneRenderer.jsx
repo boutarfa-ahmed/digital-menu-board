@@ -13,14 +13,22 @@ import PriceBadge from '../primitives/PriceBadge.jsx'
 import TierPricingHeader from '../primitives/TierPricingHeader.jsx'
 import { badgeStyleOf } from '../../theme/designTokens'
 
-function ZoneTitle({ name, accent, banner, extraPrice, theme }) {
+function bannerSizeOf(fontSize) {
+  if (!fontSize) return undefined
+  if (fontSize <= 14) return 'sm'
+  if (fontSize <= 22) return 'md'
+  return 'lg'
+}
+
+function ZoneTitle({ name, accent, banner, extraPrice, theme, fontSize }) {
   if (!name) return null
+  const scale = fontSize ? fontSize / 12 : 1
   const title = banner
-    ? <CategoryBanner label={name} accent={accent} />
+    ? <CategoryBanner label={name} accent={accent} size={bannerSizeOf(fontSize)} />
     : (
       <h2
         className="font-menu-header uppercase leading-tight tracking-wide"
-        style={{ color: accent, fontSize: 34 }}
+        style={{ color: accent, fontSize: Math.round(34 * scale) }}
       >
         {name}
       </h2>
@@ -160,14 +168,15 @@ function ListContent({ zone, theme, settings }) {
   )
 }
 
-function BannerContent({ zone, theme, settings, accent }) {
+function BannerContent({ zone, theme, settings, accent, fontSize }) {
   const first = zone.items?.[0]
   const showPrice = settings?.showPrices !== false
+  const scale = fontSize ? fontSize / 12 : 1
   if (Array.isArray(zone.badgeConfig?.tiers) && zone.badgeConfig.tiers.length > 0) {
     return (
       <div className="flex h-full w-full flex-col justify-center gap-6 p-8">
         {zone.name ? (
-          <h2 className="font-menu-header uppercase tracking-wide" style={{ color: accent, fontSize: 44 }}>
+          <h2 className="font-menu-header uppercase tracking-wide" style={{ color: accent, fontSize: Math.round(44 * scale) }}>
             {zone.name}
           </h2>
         ) : null}
@@ -195,7 +204,7 @@ function BannerContent({ zone, theme, settings, accent }) {
       style={{ background: 'linear-gradient(135deg, rgba(255,255,255,0.08), rgba(0,0,0,0.25))' }}
     >
       {zone.name ? (
-        <h2 className="font-menu-header uppercase tracking-wide" style={{ color: accent, fontSize: 44 }}>
+        <h2 className="font-menu-header uppercase tracking-wide" style={{ color: accent, fontSize: Math.round(44 * scale) }}>
           {zone.name}
         </h2>
       ) : null}
@@ -231,18 +240,18 @@ export default function ZoneRenderer({ zone, theme, settings }) {
 
   let content
   if (isBanner) {
-    content = <BannerContent zone={zone} theme={theme} settings={settings} accent={accent} />
+    content = <BannerContent zone={zone} theme={theme} settings={settings} accent={accent} fontSize={zStyle.fontSize} />
   } else if (isGrid) {
     content = (
       <div className="flex h-full flex-col">
-        <ZoneTitle name={zone.name} accent={accent} extraPrice={zone.backgroundStyle?.extraPrice} theme={theme} banner={zone.backgroundStyle?.banner} />
+        <ZoneTitle name={zone.name} accent={accent} extraPrice={zone.backgroundStyle?.extraPrice} theme={theme} banner={zone.backgroundStyle?.banner} fontSize={zStyle.fontSize} />
         <GridContent zone={zone} theme={theme} />
       </div>
     )
   } else if (isList) {
     content = (
       <div className="flex h-full flex-col">
-        <ZoneTitle name={zone.name} accent={accent} extraPrice={zone.backgroundStyle?.extraPrice} theme={theme} banner={zone.backgroundStyle?.banner} />
+        <ZoneTitle name={zone.name} accent={accent} extraPrice={zone.backgroundStyle?.extraPrice} theme={theme} banner={zone.backgroundStyle?.banner} fontSize={zStyle.fontSize} />
         <ListContent zone={zone} theme={theme} settings={settings} />
       </div>
     )
@@ -250,7 +259,7 @@ export default function ZoneRenderer({ zone, theme, settings }) {
     // highlight / unknown: zone name + first item as image-title-desc card
     content = (
       <div className="flex h-full flex-col justify-center gap-4">
-        <ZoneTitle name={zone.name} accent={accent} extraPrice={zone.backgroundStyle?.extraPrice} theme={theme} banner={zone.backgroundStyle?.banner} />
+        <ZoneTitle name={zone.name} accent={accent} extraPrice={zone.backgroundStyle?.extraPrice} theme={theme} banner={zone.backgroundStyle?.banner} fontSize={zStyle.fontSize} />
         {zone.items?.[0] ? (
           <ImageTitleDescPriceCard
             item={zone.items[0].item}
