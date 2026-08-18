@@ -208,8 +208,9 @@ export default function ZoneRenderer({ zone, theme, settings }) {
   const zStyle = zone.backgroundStyle || {}
   const accent = zStyle.accent || accentOf(theme)
   const isDark = !!zStyle.dark
-  // hard fallback: never transparent — no backgroundStyle = default theme panel
-  const bg = zStyle.bg || (isDark ? 'var(--menu-bg-dark)' : 'var(--menu-bg-light)')
+  // no backgroundStyle = transparent zone (screen background shows through);
+  // per-zone background replaces it only when explicitly set
+  const bg = zStyle.bgImage ? undefined : zStyle.bg
   const text = zStyle.text || (isDark ? '#FFFFFF' : '#1A1A1A')
   const cssVars = {
     '--menu-accent': accent,

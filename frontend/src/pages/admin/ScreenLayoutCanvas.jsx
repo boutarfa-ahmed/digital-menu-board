@@ -74,18 +74,13 @@ const STYLE_DEFAULTS = {
 }
 
 // T7.6 — screen-level background (stored in layout.settings.background)
-const BG_TYPES = ['image', 'split']
-const BG_TYPE_LABELS = {
-  image: 'Image',
-  split: 'Bicolore 50/50',
-}
 const BG_PATTERNS = ['none', 'torn-paper']
 const BG_PATTERN_LABELS = {
   none: 'Aucun',
   'torn-paper': 'Papier déchiré',
 }
 const BG_DEFAULTS = {
-  type: 'split',
+  type: 'image',
   dark: '#121212',
   light: '#F5F3EF',
   angle: 0,
@@ -633,10 +628,6 @@ function ScreenLayoutCanvas() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id])
 
-  useEffect(() => {
-    if (selectedId) setPanelTab('zone')
-  }, [selectedId])
-
   const cellFromEvent = (e) => {
     const rect = canvasRef.current.getBoundingClientRect()
     const cw = rect.width / GRID
@@ -718,6 +709,7 @@ function ScreenLayoutCanvas() {
         g.rect.x !== zone.x || g.rect.y !== zone.y || g.rect.w !== zone.w || g.rect.h !== zone.h
       if (!changed) {
         setSelectedId(g.zoneId)
+        setPanelTab('zone')
         return
       }
 
@@ -1207,8 +1199,8 @@ function ScreenLayoutCanvas() {
       })
       setBgForm((prev) => ({
         ...(prev || BG_DEFAULTS),
+        type: 'image',
         imageUrl: data.url,
-        ...(prev?.type ? {} : { type: 'image' }),
       }))
     } catch (err) {
       setError(err.response?.data?.error || 'Échec de l’upload de l’image')
@@ -2056,7 +2048,8 @@ function ScreenLayoutCanvas() {
                 // T7.4 — live style preview from the zone's backgroundStyle JSON
                 const zStyle = zone.backgroundStyle || {}
                 const zAccent = zStyle.accent || STYLE_DEFAULTS.accent
-                const zBg = zStyle.bg || (zStyle.dark ? STYLE_DEFAULTS.bgDark : STYLE_DEFAULTS.bgLight)
+                // zone without explicit background is transparent -> screen bg shows through
+                const zBg = zStyle.bgImage ? undefined : zStyle.bg
                 const zText = zStyle.text || (zStyle.dark ? STYLE_DEFAULTS.textDark : STYLE_DEFAULTS.textLight)
                 const zFontSize = zStyle.fontSize || null
 
@@ -2584,8 +2577,9 @@ function ScreenLayoutCanvas() {
           Fond de l’écran
         </h3>
         <p className="mb-5 text-sm text-gray-500 dark:text-gray-400">
-          Image de fond ou découpe bicolore 50/50 (style menu scanné), avec une texture
-          papier déchiré en option.
+          Image plein écran derrière toutes les zones, avec une texture papier déchiré en
+          option. Le fond de chaque zone se règle indépendamment (cliquez une zone dans
+          l’aperçu).
         </p>
 
         <div className="space-y-5">
@@ -2594,11 +2588,18 @@ function ScreenLayoutCanvas() {
             <BackgroundOverlays bg={bgForm} />
             {(layout?.zones || []).map((z) => {
               const bs = z.backgroundStyle || {}
-              const miniBg = bs.bg || (bs.dark ? STYLE_DEFAULTS.bgDark : null)
+              const miniBg = bs.bg
               return (
-                <div
+                <button
                   key={z.id}
-                  className="pointer-events-none absolute overflow-hidden border border-dashed border-brand-400/80"
+                  type="button"
+                  onClick={() => {
+                    setBgOpen(false)
+                    setSelectedId(z.id)
+                    setPanelTab('style')
+                  }}
+                  title={`Cliquer pour régler le fond de « ${z.name || `Zone ${z.id}`} »`}
+                  className="absolute cursor-pointer overflow-hidden border border-dashed border-brand-400/80 text-left transition-colors hover:border-brand-500 hover:bg-brand-500/10"
                   style={{ left: gpt(z.x), top: gpt(z.y), width: gpt(z.w), height: gpt(z.h), backgroundColor: miniBg || undefined }}
                 >
                   {bs.bgImage ? (
@@ -2607,107 +2608,44 @@ function ScreenLayoutCanvas() {
                   <span className="absolute right-0 top-0 rounded-bl bg-black/50 px-1 text-[9px] font-medium leading-tight text-white">
                     {z.name || `Zone ${z.id}`}
                   </span>
-                </div>
+                </button>
               )
             })}
           </div>
           <p className="-mt-3 text-xs text-gray-400 dark:text-gray-500">
-            Aperçu : les pointillés = zones. Une zone vide de fond reste transparente (on voit le fond d’écran).
+            Cliquez une zone pour régler son fond (couleur, image, texte). Une zone sans
+            fond reste transparente : on voit le fond d’écran derrière.
           </p>
 
           <div>
-            <Label>Type de fond</Label>
-            <div className="flex flex-wrap gap-2">
-              {BG_TYPES.map((key) => (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => setBgForm((prev) => ({ ...(prev || BG_DEFAULTS), type: key }))}
-                  className={`rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors ${
-                    (bgForm?.type || 'split') === key
-                      ? 'border-brand-500 bg-brand-50 text-brand-600 dark:bg-brand-500/15 dark:text-brand-400'
-                      : 'border-gray-200 text-gray-600 hover:border-brand-300 dark:border-gray-700 dark:text-gray-300'
-                  }`}
-                >
-                  {BG_TYPE_LABELS[key]}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {bgForm?.type === 'image' ? (
-            <div>
-              <Label>Image de fond</Label>
-              <div className="flex items-center gap-3">
-                <label
-                  className={`flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-gray-300 px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:border-brand-300 hover:text-brand-600 dark:border-gray-700 dark:text-gray-300 dark:hover:text-brand-400 ${
-                    bgUploading ? 'opacity-60' : ''
-                  }`}
-                >
-                  {bgUploading ? 'Upload...' : 'Importer une image'}
-                  <input type="file" accept="image/*" className="hidden" onChange={handleBgUpload} disabled={bgUploading} />
-                </label>
-                {bgForm?.imageUrl && (
-                  <button
-                    type="button"
-                    onClick={() => setBgForm((prev) => ({ ...prev, imageUrl: null }))}
-                    className="text-sm font-medium text-error-600 hover:text-error-700 dark:text-error-400"
-                  >
-                    Retirer l’image
-                  </button>
-                )}
-              </div>
+            <Label>Image de fond</Label>
+            <div className="flex items-center gap-3">
+              <label
+                className={`flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-gray-300 px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:border-brand-300 hover:text-brand-600 dark:border-gray-700 dark:text-gray-300 dark:hover:text-brand-400 ${
+                  bgUploading ? 'opacity-60' : ''
+                }`}
+              >
+                {bgUploading ? 'Upload...' : 'Importer une image'}
+                <input type="file" accept="image/*" className="hidden" onChange={handleBgUpload} disabled={bgUploading} />
+              </label>
               {bgForm?.imageUrl && (
-                <img
-                  src={bgForm.imageUrl}
-                  alt="Aperçu du fond"
-                  className="mt-2 h-24 w-full rounded-lg border border-gray-200 object-cover dark:border-gray-700"
-                />
+                <button
+                  type="button"
+                  onClick={() => setBgForm((prev) => ({ ...prev, imageUrl: null }))}
+                  className="text-sm font-medium text-error-600 hover:text-error-700 dark:text-error-400"
+                >
+                  Retirer l’image
+                </button>
               )}
             </div>
-          ) : (
-            <div className="grid grid-cols-3 gap-4">
-              <div>
-                <Label>Moitié sombre</Label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="color"
-                    value={bgForm?.dark || BG_DEFAULTS.dark}
-                    onChange={(e) => setBgForm((prev) => ({ ...(prev || BG_DEFAULTS), dark: e.target.value }))}
-                    className="size-9 cursor-pointer rounded border border-gray-300 bg-transparent p-0.5 dark:border-gray-700"
-                  />
-                  <span className="text-xs text-gray-500 dark:text-gray-400">{bgForm?.dark || BG_DEFAULTS.dark}</span>
-                </div>
-              </div>
-              <div>
-                <Label>Moitié claire</Label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="color"
-                    value={bgForm?.light || BG_DEFAULTS.light}
-                    onChange={(e) => setBgForm((prev) => ({ ...(prev || BG_DEFAULTS), light: e.target.value }))}
-                    className="size-9 cursor-pointer rounded border border-gray-300 bg-transparent p-0.5 dark:border-gray-700"
-                  />
-                  <span className="text-xs text-gray-500 dark:text-gray-400">{bgForm?.light || BG_DEFAULTS.light}</span>
-                </div>
-              </div>
-              <div>
-                <Label>Angle</Label>
-                <input
-                  type="range"
-                  min="0"
-                  max="180"
-                  step="5"
-                  value={bgForm?.angle ?? BG_DEFAULTS.angle}
-                  onChange={(e) => setBgForm((prev) => ({ ...(prev || BG_DEFAULTS), angle: Number(e.target.value) }))}
-                  className="w-full accent-brand-500"
-                />
-                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                  {bgForm?.angle ?? BG_DEFAULTS.angle}° — 0° vertical, 90° horizontal
-                </p>
-              </div>
-            </div>
-          )}
+            {bgForm?.imageUrl && (
+              <img
+                src={bgForm.imageUrl}
+                alt="Aperçu du fond"
+                className="mt-2 h-24 w-full rounded-lg border border-gray-200 object-cover dark:border-gray-700"
+              />
+            )}
+          </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div>
