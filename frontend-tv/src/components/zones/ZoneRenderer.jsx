@@ -8,7 +8,6 @@ import IconLabelCard from '../cards/IconLabelCard.jsx'
 import TextOnlyCard from '../cards/TextOnlyCard.jsx'
 import CategoryBanner from '../primitives/CategoryBanner.jsx'
 import ZoneBadge from '../ui/ZoneBadge.jsx'
-import { tornZoneClipPath } from '../primitives/TornEdge.jsx'
 import { accentOf, cardFields, templateStyle } from '../cards/cardUtils.js'
 import PriceBadge from '../primitives/PriceBadge.jsx'
 import TierPricingHeader from '../primitives/TierPricingHeader.jsx'
@@ -16,8 +15,8 @@ import { badgeStyleOf } from '../../theme/designTokens'
 
 function ZoneTitle({ name, accent, banner, extraPrice, theme }) {
   if (!name) return null
-  const title = banner === 'ribbon' || banner === 'underline'
-    ? <CategoryBanner text={name} variant={banner} color={accent} />
+  const title = banner
+    ? <CategoryBanner label={name} accent={accent} />
     : (
       <h2
         className="font-menu-header uppercase leading-tight tracking-wide"
@@ -207,30 +206,16 @@ function BannerContent({ zone, theme, settings, accent }) {
 
 export default function ZoneRenderer({ zone, theme, settings }) {
   const zStyle = zone.backgroundStyle || {}
-  const sharedBg = settings?.background
-  const shared = sharedBg?.type === 'regions'
   const accent = zStyle.accent || accentOf(theme)
   const isDark = !!zStyle.dark
-  const bg = shared ? 'transparent' : zStyle.bg || (isDark ? 'var(--menu-bg-dark)' : 'var(--menu-bg-light)')
-  // dark-looking zone: explicit dark flag OR an image bg (always has a dark
-  // legibility overlay) → flip text to near-white so it stays readable. In
-  // shared/regions mode the global background decides the text (or per-zone dark).
-  const darkBg = isDark || (!!zStyle.bgImage && !shared)
-  const zoneText =
-    zStyle.text ||
-    (shared
-      ? sharedBg.text || (isDark ? '#FFFFFF' : '#1A1A1A')
-      : darkBg
-        ? '#FFFFFF'
-        : '#1A1A1A')
+  // hard fallback: never transparent — no backgroundStyle = default theme panel
+  const bg = zStyle.bg || (isDark ? 'var(--menu-bg-dark)' : 'var(--menu-bg-light)')
+  const text = zStyle.text || (isDark ? '#FFFFFF' : '#1A1A1A')
   const cssVars = {
     '--menu-accent': accent,
-    '--menu-text': zoneText,
-    '--menu-text-muted': zoneText === '#FFFFFF' ? '#EEEEEE' : '#8A8A8A',
+    '--menu-text': text,
+    '--menu-text-muted': text === '#FFFFFF' ? '#EEEEEE' : '#8A8A8A',
   }
-  const tornClip = zStyle.torn?.edge
-    ? tornZoneClipPath(zStyle.torn.edge, zone.id, zStyle.torn.jaggedness ?? 5)
-    : null
 
   const isBanner = zone.zoneType === 'banner' || zone.zoneType === 'hero'
   const isGrid = zone.zoneType === 'grid'
@@ -273,9 +258,9 @@ export default function ZoneRenderer({ zone, theme, settings }) {
   return (
     <div
       className="relative h-full w-full overflow-hidden"
-      style={{ background: bg, padding: isBanner ? 0 : 40, clipPath: tornClip || undefined, ...cssVars }}
+      style={{ background: bg, padding: isBanner ? 0 : 40, ...cssVars }}
     >
-      {zStyle.bgImage && !shared ? (
+      {zStyle.bgImage ? (
         <div className="absolute inset-0">
           <img src={zStyle.bgImage} alt="" className="absolute inset-0 h-full w-full object-cover" />
           <div className="absolute inset-0" style={{ background: 'rgba(0,0,0,0.28)' }} />

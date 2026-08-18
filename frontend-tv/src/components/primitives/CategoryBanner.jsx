@@ -1,56 +1,70 @@
-import TornEdge from './TornEdge.jsx'
+import { useMemo } from 'react'
+
+// Deterministic PRNG (same mulberry32 pattern as TornEdge) so the ribbon's
+// torn edge stays stable between renders. Kept local so this stays a single
+// self-contained component.
+function mulberry32(seed) {
+  return function () {
+    let t = (seed += 0x6d2b79f5)
+    t = Math.imul(t ^ (t >>> 15), t | 1)
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+
+// Right-edge torn cutout: straight left/top/bottom edges, a jagged right
+// edge whose teeth eat into the ribbon by up to `thickness` px.
+function ribbonClip(seedKey, thickness) {
+  const rand = mulberry32(
+    String(seedKey).split('').reduce((a, c) => a + c.charCodeAt(0), 0)
+  )
+  const teeth = 5 + Math.round(thickness / 3)
+  const pts = []
+  for (let i = 0; i <= teeth; i++) {
+    const t = i / teeth
+    const d = Math.pow(rand(), 1.5) * thickness
+    pts.push(`${Math.max(0, Math.min(100, t * 100)).toFixed(2)}% ${d.toFixed(2)}px`)
+  }
+  const path = ['0% 0%', '0% 100%', ...pts.map((p) => `calc(100% - ${p.split(' ')[1]}) ${p.split(' ')[0]}`)]
+  return `polygon(${path.join(', ')})`
+}
+
+const SIZES = {
+  sm: { pad: 'px-4 py-1', font: 15, divider: 2, torn: 10 },
+  md: { pad: 'px-6 py-1.5', font: 18, divider: 2, torn: 12 },
+  lg: { pad: 'px-8 py-2', font: 22, divider: 3, torn: 14 },
+}
 
 /**
- * CategoryBanner — reusable category/section heading banner with two variants.
- * Pure presentational: plain props in, JSX out, colors via CSS custom
- * properties. The caller decides placement inside a zone (normal block flow).
- *
- * @param {string} text - banner label
- * @param {'ribbon'|'underline'} [variant=ribbon] - visual style
- * @param {string} [color='var(--menu-accent)'] - ribbon bg / underline+text color
- * @param {'left'|'center'} [align=left] - horizontal alignment
- * @param {string} [className] - extra wrapper classes
+ * CategoryBanner — section header: a torn-edge ribbon label followed by a
+ * horizontal divider line filling the remaining width (Meat/Sauces/Extra
+ * style). Ribbon background defaults to `var(--menu-accent)` so it follows
+ * the zone's theme accent automatically.
+ * @param {string} label - section title text (e.g. "Meat", "Sauces")
+ * @param {string} [accent='var(--menu-accent)'] - ribbon + divider color
+ * @param {string} [textColor='#FFFFFF'] - ribbon label text color
+ * @param {'sm'|'md'|'lg'} [size='md'] - ribbon height / font / divider
+ * @param {string} [className] - extra classes for the outer wrapper
  */
 export default function CategoryBanner({
-  text,
-  variant = 'ribbon',
-  color = 'var(--menu-accent)',
-  align = 'left',
+  label,
+  accent = 'var(--menu-accent)',
+  textColor = '#FFFFFF',
+  size = 'md',
   className,
 }) {
-  const alignCls = align === 'center' ? 'justify-center' : 'justify-start'
-
-  if (variant === 'underline') {
-    return (
-      <div className={`flex flex-col ${align === 'center' ? 'w-full items-center' : 'items-start'} ${className}`}>
-        <span
-          className="font-menu-header uppercase leading-tight tracking-wide"
-          style={{ color, fontSize: 20 }}
-        >
-          {text}
-        </span>
-        <div className="mt-1 h-0.5" style={{ width: 48, backgroundColor: color }} />
-      </div>
-    )
-  }
+  const s = SIZES[size] || SIZES.md
+  const clip = useMemo(() => ribbonClip(label || 'banner', s.torn), [label, s.torn])
 
   return (
-    <div className={`relative flex w-full ${alignCls} ${className}`}>
+    <div className={`flex w-full items-center gap-4 ${className}`}>
       <div
-        className="font-menu-header px-6 py-2 uppercase tracking-wide text-white"
-        style={{
-          backgroundColor: color,
-          fontSize: 18,
-          lineHeight: 1.2,
-          clipPath: 'polygon(12px 0, 100% 0, 100% 100%, 0 100%)',
-        }}
+        className={`shrink-0 font-menu-header font-bold uppercase tracking-wide ${s.pad}`}
+        style={{ backgroundColor: accent, color: textColor, fontSize: s.font, lineHeight: 1.2, clipPath: clip }}
       >
-        {text}
+        {label}
       </div>
-      <TornEdge
-        position="bottom"
-        className="pointer-events-none"
-      />
+      <div className="min-w-0 flex-1" style={{ height: s.divider, backgroundColor: accent, opacity: 0.55 }} />
     </div>
   )
 }

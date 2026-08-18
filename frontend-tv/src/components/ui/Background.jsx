@@ -1,6 +1,5 @@
-// T7.6 — screen-level background: split 50/50 (dark/light + angle), an uploaded
-// image, or "regions": one global image/fill + free-form colored/hatched zones
-// drawn from the 12x12 grid (shared background, zones stay transparent).
+// T7.6 — screen-level background: split 50/50 (dark/light + angle) or an
+// uploaded image, plus an optional torn-paper texture overlay.
 const GRAIN = `url("data:image/svg+xml,${encodeURIComponent(
   "<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='matrix' values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0.9 0.9 0.9 0.55 0'/></filter><rect width='140' height='140' filter='url(#n)'/></svg>"
 )}")`
@@ -12,24 +11,6 @@ const DEFAULTS = {
   angle: 0,
   pattern: 'none',
   patternColor: '#FFFFFF',
-}
-
-const HATCH = {
-  backgroundImage: 'repeating-linear-gradient(-45deg, #cccccc 0 4px, #B9B9B9 4px 7px)',
-}
-
-const pct = (g) => `${(g * 100) / 12}%`
-
-function regionStyle(r) {
-  const style = {
-    left: pct(r.x),
-    top: pct(r.y),
-    width: pct(r.w),
-    height: pct(r.h),
-  }
-  if (r.fill === 'hatch') return { ...style, ...HATCH }
-  if (r.fill) style.backgroundColor = r.fill
-  return style
 }
 
 function imageCss(url) {
@@ -48,11 +29,6 @@ function tornStripDataUri(color) {
 }
 
 function backgroundCss(bg) {
-  if (bg.type === 'regions') {
-    if (bg.imageUrl) return imageCss(bg.imageUrl)
-    if (bg.fill) return { backgroundColor: bg.fill }
-    return null
-  }
   if (bg.type === 'image' && bg.imageUrl) {
     return imageCss(bg.imageUrl)
   }
@@ -67,16 +43,6 @@ function backgroundCss(bg) {
 export default function Background({ config }) {
   if (!config) return null
   const bg = { ...DEFAULTS, ...config }
-  if (bg.type === 'regions') {
-    const css = backgroundCss(bg)
-    return (
-      <div className="pointer-events-none absolute inset-0 overflow-hidden" style={css}>
-        {(bg.regions || []).map((r, i) => (
-          <div key={i} className="absolute" style={regionStyle(r)} />
-        ))}
-      </div>
-    )
-  }
   const css = backgroundCss(bg)
   if (!css) return null
   const showPattern = bg.pattern === 'torn-paper'

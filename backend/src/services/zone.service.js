@@ -44,6 +44,7 @@ function validateGridConfig(gridConfig) {
 
 // T7.3: badge is a plain JSON config attached to the zone (text / price / style / position).
 function validateBadgeConfig(badgeConfig) {
+  if (badgeConfig === null) return [];
   if (!badgeConfig || typeof badgeConfig !== 'object' || Array.isArray(badgeConfig)) {
     return ['badgeConfig must be an object'];
   }
@@ -91,7 +92,6 @@ function validateBadgeConfig(badgeConfig) {
 const HEX_OR_CSS_COLOR = /^(#[0-9a-fA-F]{3,8}|rgba?\([^)]+\)|hsla?\([^)]+\)|[a-zA-Z]+)$/;
 const FONT_SIZE_MIN = 8;
 const FONT_SIZE_MAX = 128;
-const ZONE_TORN_EDGES = ['top', 'bottom', 'left', 'right'];
 const BACKGROUND_TYPES = ['image', 'split'];
 const BACKGROUND_PATTERNS = ['none', 'torn-paper'];
 const BACKGROUND_ANGLE_MAX = 180;
@@ -155,21 +155,6 @@ function validateBackgroundStyle(style) {
     const n = Number(style.fontSize);
     if (!Number.isFinite(n) || n < FONT_SIZE_MIN || n > FONT_SIZE_MAX) {
       errors.push(`backgroundStyle.fontSize must be a number between ${FONT_SIZE_MIN} and ${FONT_SIZE_MAX}px`);
-    }
-  }
-  if (style.torn !== undefined && style.torn !== null) {
-    if (typeof style.torn !== 'object' || Array.isArray(style.torn)) {
-      errors.push('backgroundStyle.torn must be an object or null');
-    } else {
-      if (!ZONE_TORN_EDGES.includes(style.torn.edge)) {
-        errors.push(`backgroundStyle.torn.edge must be one of ${ZONE_TORN_EDGES.join(', ')}`);
-      }
-      if (style.torn.jaggedness !== undefined) {
-        const j = Number(style.torn.jaggedness);
-        if (!Number.isFinite(j) || j < 1 || j > 10) {
-          errors.push('backgroundStyle.torn.jaggedness must be a number between 1 and 10');
-        }
-      }
     }
   }
   return errors;
