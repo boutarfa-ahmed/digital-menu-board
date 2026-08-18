@@ -34,13 +34,16 @@ const ZONE_TYPE_COLORS = {
   highlight: 'success',
 }
 
-const CARD_TEMPLATES = ['default', 'compact', 'large', 'minimal', 'media']
+const CARD_TEMPLATES = ['default', 'compact', 'large', 'minimal', 'media', 'icon-label', 'text-only', 'image-title-desc-price']
 const CARD_TEMPLATE_LABELS = {
   default: 'Par défaut',
   compact: 'Compact',
   large: 'Grand',
   minimal: 'Minimal',
   media: 'Média',
+  'icon-label': 'Icône + libellé',
+  'text-only': 'Texte seul',
+  'image-title-desc-price': 'Image + détails',
 }
 
 // T7.3 — zone badge/label config (plain JSON on the zone)
@@ -71,9 +74,10 @@ const STYLE_DEFAULTS = {
 }
 
 // T7.6 — screen-level background (stored in layout.settings.background)
-const BG_TYPES = ['image', 'split']
+const BG_TYPES = ['regions', 'image', 'split']
 const BG_TYPE_LABELS = {
-  image: 'Image',
+  regions: 'Fond global + régions',
+  image: 'Image pleine',
   split: 'Bicolore 50/50',
 }
 const BG_PATTERNS = ['none', 'torn-paper']
@@ -102,8 +106,72 @@ function tornStripDataUri(color) {
   )}")`
 }
 
+function tornZoneClipPath(edge, seedKey, jaggedness = 5, depth = 6) {
+  let seed = String(seedKey).split('').reduce((a, c) => a + c.charCodeAt(0), 0)
+  const rand = () => {
+    seed += 0x6d2b79f5
+    let t = seed
+    t = Math.imul(t ^ (t >>> 15), t | 1)
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+  const teeth = 8 + Math.round(jaggedness * 1.6)
+  const pts = []
+  for (let i = 0; i <= teeth; i++) {
+    const t = i / teeth
+    const jitter = (rand() - 0.5) * 2.5
+    const d = Math.pow(rand(), 1.5) * depth
+    pts.push([t * 100 + jitter, d])
+  }
+  const fmt = (v) => `${Math.max(0, Math.min(100, v)).toFixed(2)}%`
+  if (edge === 'right') {
+    const out = ['0% 0%', '0% 100%']
+    for (let i = pts.length - 1; i >= 0; i--) out.push(`${fmt(100 - pts[i][1])} ${fmt(pts[i][0])}`)
+    return `polygon(${out.join(', ')})`
+  }
+  if (edge === 'left') {
+    const out = ['100% 0%', '100% 100%']
+    for (let i = pts.length - 1; i >= 0; i--) out.push(`${fmt(pts[i][1])} ${fmt(pts[i][0])}`)
+    return `polygon(${out.join(', ')})`
+  }
+  if (edge === 'bottom') {
+    const out = ['0% 0%', '100% 0%']
+    for (let i = pts.length - 1; i >= 0; i--) out.push(`${fmt(pts[i][0])} ${fmt(100 - pts[i][1])}`)
+    return `polygon(${out.join(', ')})`
+  }
+  const out = ['0% 100%', '100% 100%']
+  for (let i = pts.length - 1; i >= 0; i--) out.push(`${fmt(pts[i][0])} ${fmt(pts[i][1])}`)
+  return `polygon(${out.join(', ')})`
+}
+
+const TORN_EDGE_LABELS = { none: 'Aucun', top: 'Haut', bottom: 'Bas', left: 'Gauche', right: 'Droite' }
+
+// shared background: free-form regions on the 12x12 grid (color or hatched band)
+const REGION_HATCH = {
+  backgroundImage: 'repeating-linear-gradient(-45deg, #cccccc 0 4px, #B9B9B9 4px 7px)',
+}
+const gpt = (g) => `${(g * 100) / 12}%`
+function regionStyle(r) {
+  const s = { left: gpt(r.x), top: gpt(r.y), width: gpt(r.w), height: gpt(r.h) }
+  if (r.fill === 'hatch') return { ...s, ...REGION_HATCH }
+  if (r.fill) s.backgroundColor = r.fill
+  return s
+}
+
 function backgroundCss(bg) {
   if (!bg) return null
+  if (bg.type === 'regions') {
+    if (bg.imageUrl) {
+      return {
+        backgroundImage: `url("${bg.imageUrl}")`,
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        backgroundRepeat: 'no-repeat',
+      }
+    }
+    if (bg.fill) return { backgroundColor: bg.fill }
+    return null
+  }
   if (bg.type === 'image' && bg.imageUrl) {
     return {
       backgroundImage: `url("${bg.imageUrl}")`,
@@ -123,33 +191,46 @@ function backgroundCss(bg) {
   return null
 }
 
-// Optional torn-paper texture over a screen background (grain + jagged divider)
+// Screen background extras: regions layer (shared mode) + optional torn-paper
+// texture (grain + jagged divider).
 function BackgroundOverlays({ bg }) {
-  if (!bg || bg.pattern !== 'torn-paper') return null
-  const color = bg.patternColor || BG_DEFAULTS.patternColor
-  const isSplit = bg.type === 'split'
-  const angle = Number(bg.angle) || 0
+  if (!bg) return null
+  const regions = bg.type === 'regions' ? bg.regions || [] : []
   return (
     <>
-      <div
-        className="pointer-events-none absolute inset-0"
-        style={{ backgroundImage: PAPER_GRAIN, backgroundRepeat: 'repeat', opacity: 0.14 }}
-      />
-      {isSplit && (
-        <div
-          className="pointer-events-none absolute left-1/2 top-1/2"
-          style={{
-            width: '300%',
-            height: 40,
-            transform: `translate(-50%, -50%) rotate(${angle - 90}deg)`,
-            transformOrigin: 'center',
-            backgroundImage: tornStripDataUri(color),
-            backgroundRepeat: 'repeat-x',
-            backgroundSize: '64px 40px',
-            opacity: 0.9,
-          }}
-        />
-      )}
+      {regions.map((r, i) => (
+        <div key={i} className="pointer-events-none absolute" style={regionStyle(r)} />
+      ))}
+      {bg.pattern !== 'torn-paper'
+        ? null
+        : (() => {
+            const color = bg.patternColor || BG_DEFAULTS.patternColor
+            const isSplit = bg.type === 'split'
+            const angle = Number(bg.angle) || 0
+            return (
+              <>
+                <div
+                  className="pointer-events-none absolute inset-0"
+                  style={{ backgroundImage: PAPER_GRAIN, backgroundRepeat: 'repeat', opacity: 0.14 }}
+                />
+                {isSplit && (
+                  <div
+                    className="pointer-events-none absolute left-1/2 top-1/2"
+                    style={{
+                      width: '300%',
+                      height: 40,
+                      transform: `translate(-50%, -50%) rotate(${angle - 90}deg)`,
+                      transformOrigin: 'center',
+                      backgroundImage: tornStripDataUri(color),
+                      backgroundRepeat: 'repeat-x',
+                      backgroundSize: '64px 40px',
+                      opacity: 0.9,
+                    }}
+                  />
+                )}
+              </>
+            )
+          })()}
     </>
   )
 }
@@ -245,16 +326,21 @@ function ZoneBadgePreview({ config, accent }) {
 }
 
 // T7.5 — mini card-template mockup shown in canvas slots (wireframe + styled)
-function CardTemplatePreview({ template, name, accent }) {
+function CardTemplatePreview({ template, name, accent, text }) {
   const t = CARD_TEMPLATES.includes(template) ? template : 'default'
   const a = accent || STYLE_DEFAULTS.accent
+  // open templates (transparent bg) take the zone text color so they flip with
+  // the fond (→.text-menu-text). Templates with an inner light chip keep the
+  // accent name so it stays readable on the white chip.
+  const open = ['compact', 'minimal', 'icon-label', 'text-only'].includes(t)
+  const nameColor = open && text ? text : a
   const imgBlock = <div className="min-h-0 flex-1 bg-gray-400/60" />
 
   if (t === 'compact') {
     return (
       <div className="flex h-full w-full flex-col items-center justify-center gap-0.5 overflow-hidden">
         <div className="size-4 flex-none rounded bg-white/85 shadow-sm" />
-        <span className="max-w-full truncate text-[8px] font-semibold uppercase leading-tight" style={{ color: a }}>
+        <span className="max-w-full truncate text-[8px] font-semibold uppercase leading-tight" style={{ color: nameColor }}>
           {name}
         </span>
       </div>
@@ -275,7 +361,7 @@ function CardTemplatePreview({ template, name, accent }) {
   if (t === 'minimal') {
     return (
       <div className="flex h-full w-full flex-col justify-center gap-0.5 overflow-hidden">
-        <span className="truncate text-[8px] font-semibold uppercase leading-tight" style={{ color: a }}>
+        <span className="truncate text-[8px] font-semibold uppercase leading-tight" style={{ color: nameColor }}>
           {name}
         </span>
         <div className="h-0.5 w-3/4 rounded bg-white/40" />
@@ -289,6 +375,41 @@ function CardTemplatePreview({ template, name, accent }) {
         <span className="min-w-0 flex-1 truncate text-[8px] font-semibold leading-tight" style={{ color: a }}>
           {name}
         </span>
+      </div>
+    )
+  }
+  if (t === 'icon-label') {
+    return (
+      <div className="flex h-full w-full flex-col items-center justify-center gap-0.5 overflow-hidden">
+        <div className="size-4 flex-none rounded-full bg-white/85 shadow-sm" />
+        <span className="max-w-full truncate text-center text-[8px] font-semibold uppercase leading-tight" style={{ color: nameColor }}>
+          {name}
+        </span>
+      </div>
+    )
+  }
+  if (t === 'text-only') {
+    return (
+      <div className="flex h-full w-full flex-col justify-center gap-0.5 overflow-hidden px-0.5">
+        <span className="truncate text-[8px] font-bold uppercase leading-tight" style={{ color: nameColor }}>
+          {name}
+        </span>
+        <div className="h-0.5 w-full rounded bg-white/30" />
+        <div className="h-0.5 w-2/3 rounded bg-white/20" />
+      </div>
+    )
+  }
+  if (t === 'image-title-desc-price') {
+    return (
+      <div className="flex h-full w-full items-center gap-1 overflow-hidden rounded bg-white/75 px-0.5 shadow-sm">
+        <div className="size-3.5 flex-none rounded bg-gray-400/60" />
+        <div className="min-w-0 flex-1">
+          <span className="block truncate text-[8px] font-semibold leading-tight" style={{ color: a }}>
+            {name}
+          </span>
+          <div className="mt-0.5 h-0.5 w-full rounded bg-white/40" />
+          <div className="mt-0.5 h-0.5 w-2/3 rounded bg-white/30" />
+        </div>
       </div>
     )
   }
@@ -307,7 +428,7 @@ function CardTemplatePreview({ template, name, accent }) {
 }
 
 // T7.5 — final "styled" content of a zone (used in preview mode)
-function StyledZoneContent({ zone, accent }) {
+function StyledZoneContent({ zone, accent, text }) {
   const items = zone.items || []
   const t = zone.cardTemplate || 'default'
 
@@ -335,7 +456,7 @@ function StyledZoneContent({ zone, accent }) {
           const item = items.find((it) => it.row === r && it.col === c)
           return item ? (
             <div key={i} className="min-h-0 min-w-0 overflow-hidden rounded">
-              <CardTemplatePreview template={t} name={item.item?.name} accent={accent} />
+              <CardTemplatePreview template={t} name={item.item?.name} accent={accent} text={text} />
             </div>
           ) : (
             <div key={i} className="min-h-0 min-w-0 rounded border border-current opacity-25" />
@@ -353,7 +474,7 @@ function StyledZoneContent({ zone, accent }) {
       ) : (
         items.slice(0, 12).map((it) => (
           <div key={it.itemId} className="h-5 flex-none">
-            <CardTemplatePreview template={t} name={it.item?.name} accent={accent} />
+            <CardTemplatePreview template={t} name={it.item?.name} accent={accent} text={text} />
           </div>
         ))
       )}
@@ -530,7 +651,6 @@ function ScreenLayoutCanvas() {
   const [bgForm, setBgForm] = useState(null)
   const [bgUploading, setBgUploading] = useState(false)
   const [bgSaving, setBgSaving] = useState(false)
-  const [zoneImgUploading, setZoneImgUploading] = useState(false)
 
   const [modalOpen, setModalOpen] = useState(false)
   const [form, setForm] = useState({
@@ -1071,7 +1191,7 @@ function ScreenLayoutCanvas() {
   const publishIssues = isAdmin ? validateLayoutForPublish(layout) : []
 
   const filteredItems = items.filter((it) => {
-    if (catFilter !== 'all' && it.categoryId !== catFilter) return false
+    if (catFilter !== 'all' && Number(it.categoryId) !== Number(catFilter)) return false
     if (search && !it.name?.toLowerCase().includes(search.toLowerCase())) return false
     return true
   })
@@ -1119,9 +1239,32 @@ function ScreenLayoutCanvas() {
   // T7.6 — screen background editor (layout.settings.background)
   const screenBg = layout?.settings?.background || null
   const openBg = () => {
-    setBgForm(screenBg ? { ...screenBg } : { ...BG_DEFAULTS })
+    const prev = screenBg ? { ...screenBg } : { ...BG_DEFAULTS }
+    if (prev.type === 'regions' && prev.clearZoneBackgrounds === undefined) prev.clearZoneBackgrounds = true
+    setBgForm(prev)
     setBgOpen(true)
     setError('')
+  }
+  // Build the regions list from the zones' positions: one region per zone, colored
+  // from its current background (color / dark / torn→hatched) or white by default.
+  const syncRegionsFromZones = () => {
+    const list = (layout?.zones || [])
+      .map((z) => {
+        const bs = z.backgroundStyle || {}
+        let fill = null
+        if (bs.torn?.edge) {
+          fill = 'hatch'
+        } else if (bs.bg) {
+          fill = bs.bg
+        } else if (bs.dark) {
+          fill = '#121212'
+        } else {
+          fill = '#FFFFFF'
+        }
+        return { x: z.x, y: z.y, w: z.w, h: z.h, fill }
+      })
+      .filter(Boolean)
+    setBgForm((prev) => ({ ...(prev || BG_DEFAULTS), type: 'regions', regions: list }))
   }
   const saveBackground = async () => {
     if (!layout) return
@@ -1130,19 +1273,44 @@ function ScreenLayoutCanvas() {
     try {
       const settings = { ...(layout.settings || {}) }
       if (bgForm && (bgForm.type || bgForm.pattern || bgForm.imageUrl)) {
+        const regions = Array.isArray(bgForm.regions)
+          ? bgForm.regions
+              .filter(
+                (r) =>
+                  Number.isFinite(r.x) &&
+                  Number.isFinite(r.y) &&
+                  Number.isFinite(r.w) &&
+                  Number.isFinite(r.h) &&
+                  r.fill
+              )
+              .map((r) => ({ x: r.x, y: r.y, w: r.w, h: r.h, fill: r.fill }))
+          : []
         settings.background = {
           ...BG_DEFAULTS,
           ...bgForm,
           angle: Number(bgForm.angle) || 0,
           pattern: BG_PATTERNS.includes(bgForm.pattern) ? bgForm.pattern : 'none',
+          regions,
         }
       } else {
         settings.background = null
       }
       await api.put(`/screens/${id}/layout`, { settings })
+      const clearZoneBg = bgForm?.type === 'regions' && bgForm.clearZoneBackgrounds
+      if (clearZoneBg) {
+        for (const z of layout.zones || []) {
+          const bs = z.backgroundStyle || {}
+          if (!bs.bg && !bs.bgImage && !bs.dark) continue
+          const clean = { ...bs }
+          delete clean.bg
+          delete clean.bgImage
+          delete clean.dark
+          await api.put(`/zones/${z.id}`, { backgroundStyle: clean })
+        }
+      }
       await load()
       setBgOpen(false)
-      setNotice('Fond de l’écran enregistré.')
+      setNotice(clearZoneBg ? 'Fond global enregistré ; fonds des zones vidés.' : 'Fond de l’écran enregistré.')
     } catch (err) {
       setError(err.response?.data?.error || 'Impossible d’enregistrer le fond')
     } finally {
@@ -1160,7 +1328,11 @@ function ScreenLayoutCanvas() {
       const { data } = await api.post('/upload', fd, {
         headers: { 'Content-Type': 'multipart/form-data' },
       })
-      setBgForm((prev) => ({ ...(prev || BG_DEFAULTS), type: 'image', imageUrl: data.url }))
+      setBgForm((prev) => ({
+        ...(prev || BG_DEFAULTS),
+        imageUrl: data.url,
+        ...(prev?.type ? {} : { type: 'image' }),
+      }))
     } catch (err) {
       setError(err.response?.data?.error || 'Échec de l’upload de l’image')
     } finally {
@@ -1183,27 +1355,6 @@ function ScreenLayoutCanvas() {
       setError(err.response?.data?.error || 'Impossible de retirer le fond')
     } finally {
       setBgSaving(false)
-    }
-  }
-
-  // T7.9b — per-zone background image (upload -> backgroundStyle.bgImage)
-  const handleZoneImgUpload = async (e) => {
-    const file = e.target.files?.[0]
-    if (!file || !selected) return
-    setZoneImgUploading(true)
-    setError('')
-    try {
-      const fd = new FormData()
-      fd.append('image', file)
-      const { data } = await api.post('/upload', fd, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      })
-      patchStyle({ bgImage: data.url })
-    } catch (err) {
-      setError(err.response?.data?.error || 'Échec de l’upload de l’image')
-    } finally {
-      setZoneImgUploading(false)
-      e.target.value = ''
     }
   }
 
@@ -1644,6 +1795,70 @@ function ScreenLayoutCanvas() {
                         </p>
                       )}
                     </div>
+
+                    {(selected.zoneType === 'banner' || selected.zoneType === 'hero') && (
+                      <div className="border-t border-gray-100 pt-4 dark:border-gray-800">
+                        <div className="mb-2 flex items-center justify-between">
+                          <Label>Paliers de prix (ex : 1/2/3 viandes)</Label>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const tiers = [...(selected.badgeConfig?.tiers || []), { label: '', price: 0 }]
+                              patchZone(selected.id, { badgeConfig: { ...(selected.badgeConfig || {}), tiers } })
+                            }}
+                            className="text-xs font-medium text-brand-600 hover:text-brand-700 dark:text-brand-400"
+                          >
+                            + Ajouter
+                          </button>
+                        </div>
+                        {(selected.badgeConfig?.tiers || []).map((tier, i) => (
+                          <div key={i} className="mb-2 flex items-center gap-2">
+                            <Input
+                              type="text"
+                              value={tier.label}
+                              placeholder="1 Meat"
+                              onChange={(e) => {
+                                const tiers = selected.badgeConfig.tiers.map((t, idx) =>
+                                  idx === i ? { ...t, label: e.target.value } : t
+                                )
+                                patchZone(selected.id, { badgeConfig: { ...selected.badgeConfig, tiers } })
+                              }}
+                              className="flex-1"
+                            />
+                            <Input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={tier.price}
+                              placeholder="8.50"
+                              onChange={(e) => {
+                                const tiers = selected.badgeConfig.tiers.map((t, idx) =>
+                                  idx === i ? { ...t, price: Number(e.target.value) || 0 } : t
+                                )
+                                patchZone(selected.id, { badgeConfig: { ...selected.badgeConfig, tiers } })
+                              }}
+                              className="w-24"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const tiers = selected.badgeConfig.tiers.filter((_, idx) => idx !== i)
+                                const nextBadge = { ...selected.badgeConfig }
+                                if (tiers.length > 0) nextBadge.tiers = tiers
+                                else delete nextBadge.tiers
+                                patchZone(selected.id, { badgeConfig: Object.keys(nextBadge).length > 0 ? nextBadge : null })
+                              }}
+                              className="rounded-md p-1.5 text-gray-400 hover:bg-error-50 hover:text-error-600 dark:hover:bg-error-500/10"
+                            >
+                              <CloseIcon className="size-4" />
+                            </button>
+                          </div>
+                        ))}
+                        {(!selected.badgeConfig?.tiers || selected.badgeConfig.tiers.length === 0) && (
+                          <p className="text-xs text-gray-400">Aucun palier. Cliquez sur « + Ajouter ».</p>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </>
               ) : (
@@ -1668,73 +1883,12 @@ function ScreenLayoutCanvas() {
                   </div>
 
                   <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-4">
-                    <div>
-                      <Label>Fond</Label>
-                      <div className="grid grid-cols-2 gap-2">
-                        <button
-                          type="button"
-                          onClick={() => patchStyle({ dark: false, bg: undefined })}
-                          className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
-                            styleCfg.dark
-                              ? 'border-gray-200 text-gray-500 dark:border-gray-700 dark:text-gray-400'
-                              : 'border-brand-500 bg-brand-50 text-brand-600 dark:bg-brand-500/15 dark:text-brand-400'
-                          }`}
-                        >
-                          Clair
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => patchStyle({ dark: true, bg: undefined })}
-                          className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
-                            styleCfg.dark
-                              ? 'border-brand-500 bg-brand-50 text-brand-600 dark:bg-brand-500/15 dark:text-brand-400'
-                              : 'border-gray-200 text-gray-500 dark:border-gray-700 dark:text-gray-400'
-                          }`}
-                        >
-                          Sombre
-                        </button>
-                      </div>
-                    </div>
-
-                    <div>
-                      <Label htmlFor="zone-style-bgimage">Image de fond (remplit toute la zone)</Label>
-                      <div className="flex items-center gap-3">
-                        <label
-                          className={`flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-gray-300 px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:border-brand-300 hover:text-brand-600 dark:border-gray-700 dark:text-gray-300 dark:hover:text-brand-400 ${
-                            zoneImgUploading ? 'opacity-60' : ''
-                          }`}
-                        >
-                          {zoneImgUploading ? 'Upload...' : styleCfg.bgImage ? 'Changer l’image' : 'Importer une image'}
-                          <input
-                            id="zone-style-bgimage"
-                            type="file"
-                            accept="image/*"
-                            className="hidden"
-                            onChange={handleZoneImgUpload}
-                            disabled={zoneImgUploading}
-                          />
-                        </label>
-                        {styleCfg.bgImage ? (
-                          <button
-                            type="button"
-                            onClick={() => patchStyle({ bgImage: null })}
-                            className="text-sm font-medium text-error-600 hover:text-error-700 dark:text-error-400"
-                          >
-                            Retirer
-                          </button>
-                        ) : null}
-                      </div>
-                      {styleCfg.bgImage ? (
-                        <img
-                          src={styleCfg.bgImage}
-                          alt="Fond de la zone"
-                          className="mt-2 h-24 w-full rounded-lg border border-gray-200 object-cover dark:border-gray-700"
-                        />
-                      ) : null}
+                    <div className="rounded-lg bg-gray-50 p-3 text-xs text-gray-500 dark:bg-white/5 dark:text-gray-400">
+                      Le fond et la photo sont gérés depuis « Fond de l’écran » (global). Ici vous réglez la taille, la
+                      police et les couleurs du texte de la zone.
                     </div>
 
                     {[
-                      { key: 'bg', label: 'Couleur fond' },
                       { key: 'text', label: 'Couleur texte' },
                       { key: 'accent', label: 'Couleur accent' },
                     ].map(({ key, label }) => {
@@ -1788,6 +1942,64 @@ function ScreenLayoutCanvas() {
                           </option>
                         ))}
                       </select>
+                    </div>
+
+                    <div>
+                      <Label htmlFor="zone-style-banner">Style du titre</Label>
+                      <select
+                        id="zone-style-banner"
+                        value={styleCfg.banner || 'default'}
+                        onChange={(e) =>
+                          patchStyle({ banner: e.target.value === 'default' ? undefined : e.target.value })
+                        }
+                        className="w-full rounded-lg border border-gray-300 bg-transparent px-3 py-2.5 text-sm text-gray-800 outline-none focus:border-brand-300 focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:text-white/90"
+                      >
+                        <option value="default">Par défaut</option>
+                        <option value="ribbon">Ruban</option>
+                        <option value="underline">Soulignement</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <Label htmlFor="zone-style-extraprice">Prix "Extra" (optionnel)</Label>
+                      <Input
+                        id="zone-style-extraprice"
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={styleCfg.extraPrice ?? ''}
+                        onChange={(e) => {
+                          const raw = e.target.value
+                          patchStyle({ extraPrice: raw === '' ? undefined : Math.max(0, Number(raw)) })
+                        }}
+                        placeholder="Ex : 1.00"
+                      />
+                      <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
+                        Affiche un badge prix à côté du titre de la zone (ex : "Extra +1,00€").
+                      </p>
+                    </div>
+
+                    <div>
+                      <Label htmlFor="zone-style-torn">Bord déchiré</Label>
+                      <select
+                        id="zone-style-torn"
+                        value={styleCfg.torn?.edge || 'none'}
+                        onChange={(e) =>
+                          patchStyle({
+                            torn: e.target.value === 'none' ? undefined : { edge: e.target.value, jaggedness: 5 },
+                          })
+                        }
+                        className="w-full rounded-lg border border-gray-300 bg-transparent px-3 py-2.5 text-sm text-gray-800 outline-none focus:border-brand-300 focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:text-white/90"
+                      >
+                        {Object.entries(TORN_EDGE_LABELS).map(([key, label]) => (
+                          <option key={key} value={key}>
+                            {label}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
+                        Effet papier déchiré sur le bord choisi, visible en mode « Aperçu ».
+                      </p>
                     </div>
 
                     <div>
@@ -1876,10 +2088,10 @@ function ScreenLayoutCanvas() {
               className="relative w-full select-none overflow-hidden rounded-lg border-2 border-gray-300 bg-gray-900 shadow-xl dark:border-gray-700"
               style={{
                 aspectRatio: '16 / 9',
-                ...(previewMode && screenBg ? backgroundCss(screenBg) : {}),
+                ...(screenBg ? backgroundCss(screenBg) : {}),
               }}
             >
-              <BackgroundOverlays bg={previewMode ? screenBg : null} />
+              <BackgroundOverlays bg={screenBg} />
               {(layout.zones || []).map((zone) => {
                 const active = gesture?.zoneId === zone.id
                 const rect = active ? gesture.rect : zone
@@ -1908,9 +2120,19 @@ function ScreenLayoutCanvas() {
 
                 // T7.4 — live style preview from the zone's backgroundStyle JSON
                 const zStyle = zone.backgroundStyle || {}
+                const sharedBg = layout?.settings?.background
+                const shared = sharedBg?.type === 'regions'
                 const zAccent = zStyle.accent || STYLE_DEFAULTS.accent
-                const zBg = zStyle.bg || (zStyle.dark ? STYLE_DEFAULTS.bgDark : STYLE_DEFAULTS.bgLight)
-                const zText = zStyle.text || (zStyle.dark ? STYLE_DEFAULTS.textDark : STYLE_DEFAULTS.textLight)
+                const zBg = shared
+                  ? 'transparent'
+                  : zStyle.bg || (zStyle.dark ? STYLE_DEFAULTS.bgDark : STYLE_DEFAULTS.bgLight)
+                const zText =
+                  zStyle.text ||
+                  (shared
+                    ? sharedBg.text || (zStyle.dark ? STYLE_DEFAULTS.textDark : STYLE_DEFAULTS.textLight)
+                    : zStyle.dark
+                      ? STYLE_DEFAULTS.textDark
+                      : STYLE_DEFAULTS.textLight)
                 const zFontSize = zStyle.fontSize || null
 
                 const slotDnD = (key, { targetRow, targetCol, targetIndex }, paletteAware) => ({
@@ -1962,9 +2184,12 @@ function ScreenLayoutCanvas() {
                       backgroundColor: zStyle.bgImage ? undefined : zBg,
                       color: zText,
                       fontSize: zFontSize || 12,
+                      clipPath: zStyle.torn?.edge
+                        ? tornZoneClipPath(zStyle.torn.edge, zone.id, zStyle.torn.jaggedness ?? 5)
+                        : undefined,
                     }}
                   >
-                    {zStyle.bgImage ? (
+                    {zStyle.bgImage && !shared ? (
                       <img
                         src={zStyle.bgImage}
                         alt=""
@@ -1981,7 +2206,7 @@ function ScreenLayoutCanvas() {
                           {zone.name}
                         </span>
                       ) : null}
-                      <StyledZoneContent zone={zone} accent={zAccent} />
+                      <StyledZoneContent zone={zone} accent={zAccent} text={zText} />
                     </div>
                     <ZoneBadgePreview config={zone.badgeConfig} accent={zAccent} />
                   </div>
@@ -2081,13 +2306,19 @@ function ScreenLayoutCanvas() {
                                   className={`group relative min-w-0 rounded border text-[9px] font-medium leading-tight ${
                                     slotActive(key)
                                       ? 'border-brand-500 bg-brand-500/15 text-brand-600 dark:text-brand-400'
-                                      : 'border-gray-300 bg-gray-100 text-gray-700 dark:border-gray-600 dark:bg-gray-700 dark:text-white/90'
+                                      : 'border-gray-300 dark:border-gray-600'
                                   } ${isAdmin ? 'cursor-grab active:cursor-grabbing' : ''}`}
+                                  style={
+                                    slotActive(key)
+                                      ? undefined
+                                      : { backgroundColor: zStyle.dark ? '#434343' : '#F3F4F6', color: zStyle.dark ? '#FFFFFF' : '#374151' }
+                                  }
                                 >
                                   <CardTemplatePreview
                                     template={zone.cardTemplate}
                                     name={item.item?.name}
                                     accent={zAccent}
+                                    text={zText}
                                   />
                                   {isAdmin && (
                                     <button
@@ -2145,16 +2376,46 @@ function ScreenLayoutCanvas() {
                                 className={`group relative min-w-0 rounded border text-[9px] font-medium ${
                                   slotActive(key)
                                     ? 'border-brand-500 bg-brand-500/15 text-brand-600 dark:text-brand-400'
-                                    : 'border-gray-300 bg-gray-100 text-gray-700 dark:border-gray-600 dark:bg-gray-700 dark:text-white/90'
+                                    : 'border-gray-300 dark:border-gray-600'
                                 } ${isAdmin ? 'cursor-grab active:cursor-grabbing' : ''}`}
+                                style={
+                                  slotActive(key)
+                                    ? undefined
+                                    : { backgroundColor: zStyle.dark ? '#434343' : '#F3F4F6', color: zStyle.dark ? '#FFFFFF' : '#374151' }
+                                }
                               >
                                 <div className="h-5 min-w-0">
                                   <CardTemplatePreview
                                     template={zone.cardTemplate}
                                     name={item.item?.name}
                                     accent={zAccent}
+                                    text={zText}
                                   />
                                 </div>
+                                {isAdmin && (
+                                  <input
+                                    type="number"
+                                    min="1"
+                                    value={item.qty ?? ''}
+                                    placeholder="—"
+                                    onPointerDown={(e) => e.stopPropagation()}
+                                    onClick={(e) => e.stopPropagation()}
+                                    onChange={(e) => {
+                                      const raw = e.target.value
+                                      const qty = raw === '' ? null : Math.max(1, parseInt(raw, 10) || 1)
+                                      const items = zone.items.map((it) => ({
+                                        itemId: it.itemId,
+                                        row: it.row,
+                                        col: it.col,
+                                        index: it.index,
+                                        order: it.order,
+                                        qty: it.itemId === item.itemId ? qty : it.qty,
+                                      }))
+                                      putZoneItems(zone, items)
+                                    }}
+                                    className="absolute -left-1 -top-1 z-10 h-4 w-8 rounded border border-gray-400 bg-white text-[8px] text-gray-800 dark:bg-gray-800 dark:text-white/90"
+                                  />
+                                )}
                                 {isAdmin && (
                                   <button
                                     type="button"
@@ -2409,6 +2670,17 @@ function ScreenLayoutCanvas() {
           <div className="relative aspect-video w-full overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700">
             <div className="absolute inset-0" style={backgroundCss(bgForm)} />
             <BackgroundOverlays bg={bgForm} />
+            {(layout?.zones || []).map((z) => (
+              <div
+                key={z.id}
+                className="pointer-events-none absolute flex items-end justify-end border border-dashed border-brand-400/80 p-0.5"
+                style={{ left: gpt(z.x), top: gpt(z.y), width: gpt(z.w), height: gpt(z.h) }}
+              >
+                <span className="rounded bg-black/40 px-1 text-[9px] font-medium leading-tight text-white">
+                  {z.name || `Zone ${z.id}`}
+                </span>
+              </div>
+            ))}
           </div>
 
           <div>
@@ -2431,7 +2703,177 @@ function ScreenLayoutCanvas() {
             </div>
           </div>
 
-          {bgForm?.type === 'image' ? (
+          {bgForm?.type === 'regions' ? (
+            <div className="space-y-5">
+              <div>
+                <Label>Photo de fond (plein écran)</Label>
+                <div className="flex items-center gap-3">
+                  <label
+                    className={`flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-gray-300 px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:border-brand-300 hover:text-brand-600 dark:border-gray-700 dark:text-gray-300 dark:hover:text-brand-400 ${
+                      bgUploading ? 'opacity-60' : ''
+                    }`}
+                  >
+                    {bgUploading ? 'Upload...' : 'Importer une photo'}
+                    <input type="file" accept="image/*" className="hidden" onChange={handleBgUpload} disabled={bgUploading} />
+                  </label>
+                  {bgForm?.imageUrl && (
+                    <button
+                      type="button"
+                      onClick={() => setBgForm((prev) => ({ ...prev, imageUrl: null }))}
+                      className="text-sm font-medium text-error-600 hover:text-error-700 dark:text-error-400"
+                    >
+                      Retirer la photo
+                    </button>
+                  )}
+                </div>
+                {bgForm?.imageUrl && (
+                  <img
+                    src={bgForm.imageUrl}
+                    alt="Aperçu du fond"
+                    className="mt-2 h-24 w-full rounded-lg border border-gray-200 object-cover dark:border-gray-700"
+                  />
+                )}
+              </div>
+
+              <div>
+                <Label>Couleur de fond (sous la photo)</Label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="color"
+                    value={bgForm?.fill || '#1A1A1A'}
+                    onChange={(e) => setBgForm((prev) => ({ ...(prev || BG_DEFAULTS), fill: e.target.value }))}
+                    className="size-9 cursor-pointer rounded border border-gray-300 bg-transparent p-0.5 dark:border-gray-700"
+                  />
+                  <span className="text-xs text-gray-500 dark:text-gray-400">{bgForm?.fill || '#1A1A1A'}</span>
+                </div>
+              </div>
+
+              <div>
+                <Label>Texte des zones</Label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setBgForm((prev) => ({ ...(prev || BG_DEFAULTS), text: '#FFFFFF' }))}
+                    className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
+                      (bgForm?.text || '#1A1A1A') === '#FFFFFF'
+                        ? 'border-brand-500 bg-brand-50 text-brand-600 dark:bg-brand-500/15 dark:text-brand-400'
+                        : 'border-gray-200 text-gray-600 hover:border-brand-300 dark:border-gray-700 dark:text-gray-300'
+                    }`}
+                  >
+                    Blanc (fond sombre)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setBgForm((prev) => ({ ...(prev || BG_DEFAULTS), text: '#1A1A1A' }))}
+                    className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
+                      (bgForm?.text || '#1A1A1A') === '#1A1A1A'
+                        ? 'border-brand-500 bg-brand-50 text-brand-600 dark:bg-brand-500/15 dark:text-brand-400'
+                        : 'border-gray-200 text-gray-600 hover:border-brand-300 dark:border-gray-700 dark:text-gray-300'
+                    }`}
+                  >
+                    Noir (fond clair)
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <Label>Régions (couleurs / zones hachées)</Label>
+                <div className="space-y-2">
+                  {(bgForm?.regions || []).map((r, i) => {
+                    const isHatch = r.fill === 'hatch'
+                    const num = (label, key) => (
+                      <div key={label} className="flex items-center gap-1">
+                        <span className="text-[10px] uppercase text-gray-400">{label}</span>
+                        <input
+                          type="number"
+                          min="0"
+                          max="12"
+                          step="1"
+                          value={r[key]}
+                          onChange={(e) => {
+                            const v = Math.max(0, Math.min(12, Number(e.target.value) || 0))
+                            setBgForm((prev) => ({
+                              ...prev,
+                              regions: (prev.regions || []).map((rr, j) => (j === i ? { ...rr, [key]: v } : rr)),
+                            }))
+                          }}
+                          className="w-12 rounded border border-gray-300 bg-transparent px-1 py-1 text-xs text-gray-800 dark:border-gray-700 dark:text-white/90"
+                        />
+                      </div>
+                    )
+                    return (
+                      <div key={i} className="flex flex-wrap items-center gap-2 rounded-lg border border-gray-200 p-2 dark:border-gray-700">
+                        {num('X', 'x')}
+                        {num('Y', 'y')}
+                        {num('L', 'w')}
+                        {num('H', 'h')}
+                        <select
+                          value={isHatch ? 'hatch' : 'color'}
+                          onChange={(e) => {
+                            const fill = e.target.value === 'hatch' ? 'hatch' : r.fill === 'hatch' ? undefined : r.fill || '#FFFFFF'
+                            setBgForm((prev) => ({
+                              ...prev,
+                              regions: (prev.regions || []).map((rr, j) => (j === i ? { ...rr, fill } : rr)),
+                            }))
+                          }}
+                          className="w-24 rounded-lg border border-gray-300 bg-transparent px-2 py-1 text-xs text-gray-800 dark:border-gray-700 dark:text-white/90"
+                        >
+                          <option value="color">Couleur</option>
+                          <option value="hatch">Haché</option>
+                        </select>
+                        {!isHatch && (
+                          <input
+                            type="color"
+                            value={r.fill || '#FFFFFF'}
+                            onChange={(e) =>
+                              setBgForm((prev) => ({
+                                ...prev,
+                                regions: (prev.regions || []).map((rr, j) => (j === i ? { ...rr, fill: e.target.value } : rr)),
+                              }))
+                            }
+                            className="size-7 cursor-pointer rounded border border-gray-300 bg-transparent p-0.5 dark:border-gray-700"
+                          />
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setBgForm((prev) => ({ ...prev, regions: (prev.regions || []).filter((_, j) => j !== i) }))}
+                          className="ml-auto rounded p-1 text-gray-400 transition-colors hover:bg-gray-100 hover:text-error-600 dark:hover:bg-gray-800"
+                          title="Supprimer la région"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    )
+                  })}
+                </div>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setBgForm((prev) => ({ ...(prev || BG_DEFAULTS), regions: [...(prev?.regions || []), { x: 0, y: 0, w: 6, h: 12, fill: '#FFFFFF' }] }))}
+                    className="rounded-lg border border-dashed border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 transition-colors hover:border-brand-300 hover:text-brand-600 dark:border-gray-700 dark:text-gray-300 dark:hover:text-brand-400"
+                  >
+                    + Ajouter une région
+                  </button>
+                  <button
+                    type="button"
+                    onClick={syncRegionsFromZones}
+                    className="rounded-lg border border-dashed border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 transition-colors hover:border-brand-300 hover:text-brand-600 dark:border-gray-700 dark:text-gray-300 dark:hover:text-brand-400"
+                  >
+                    Utiliser les fonds des zones actuelles
+                  </button>
+                </div>
+                <label className="mt-3 flex cursor-pointer items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
+                  <input
+                    type="checkbox"
+                    checked={bgForm?.clearZoneBackgrounds !== false}
+                    onChange={(e) => setBgForm((prev) => ({ ...(prev || BG_DEFAULTS), clearZoneBackgrounds: e.target.checked }))}
+                    className="size-3.5 accent-brand-500"
+                  />
+                  Vider les fonds individuels des zones (zones transparentes)
+                </label>
+              </div>
+            </div>
+          ) : bgForm?.type === 'image' ? (
             <div>
               <Label>Image de fond</Label>
               <div className="flex items-center gap-3">

@@ -26,6 +26,14 @@ export default function ScreenRenderer({ layout }) {
   const { w, h } = useViewport()
   const scale = Math.min(w / DESIGN_W, h / DESIGN_H)
   const zones = layout?.zones || []
+  const sharedBg = layout?.settings?.background
+  const sharedVars =
+    sharedBg?.type === 'regions' && sharedBg.text
+      ? {
+          '--menu-text': sharedBg.text,
+          '--menu-text-muted': sharedBg.text === '#FFFFFF' ? '#EEEEEE' : '#8A8A8A',
+        }
+      : null
 
   return (
     <div className="flex h-screen w-screen items-center justify-center overflow-hidden bg-black">
@@ -39,7 +47,7 @@ export default function ScreenRenderer({ layout }) {
         }}
       >
         {/* theme tokens scoped to the design canvas */}
-        <div className="absolute inset-0" style={themeToCssVars(layout?.theme)}>
+        <div className="absolute inset-0" style={{ ...themeToCssVars(layout?.theme), ...sharedVars }}>
           <Background config={layout?.settings?.background} />
           {zones.map((zone) => (
             <div

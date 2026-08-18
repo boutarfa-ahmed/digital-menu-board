@@ -131,6 +131,7 @@ router.put('/zones/:id/items', auth, requireRole('admin'), async (req, res) => {
             col: it.col ?? null,
             index: it.index ?? i,
             order: it.order ?? i,
+            qty: it.qty !== undefined ? Number(it.qty) || null : null,
           })),
         })
       );

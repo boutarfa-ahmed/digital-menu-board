@@ -36,7 +36,7 @@ const VARIANT_STYLES = {
  * @param {'sm'|'md'|'lg'} [size=md] - scales padding + integer size
  * @param {number|boolean} [rotate=0] - degrees to rotate the badge (e.g. -2);
  *   `true` maps to -2deg for legacy boolean usage
- * @param {string} [currency='€'] - trailing currency symbol
+ * @param {string} [currency='CHF'] - trailing currency symbol
  * @param {string} [badgeStyle] - 'torn-paper'|'rounded'|'ribbon' variant;
  *   defaults to a slightly-rounded sticker rectangle
  * @param {'dark'|'light'} [variant=dark] - badge color scheme (dark stays default)
@@ -46,7 +46,7 @@ export default function PriceBadge({
   price,
   size = 'md',
   rotate = 0,
-  currency = '€',
+  currency = 'CHF',
   badgeStyle = null,
   variant,
   tone = 'black',

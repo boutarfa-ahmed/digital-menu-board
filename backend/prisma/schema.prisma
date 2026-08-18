@@ -129,6 +129,7 @@ model ZoneItem {
   col       Int?      // column position inside a grid zone
   index     Int?      // sequential position for list/carousel zones
   order     Int       @default(0) // fallback ordering
+  qty       Int?      // display multiplier for list-row-price-qty template (e.g. "5X")
   createdAt DateTime  @default(now())
 
   @@unique([zoneId, itemId])

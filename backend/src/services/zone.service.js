@@ -1,5 +1,5 @@
 const ZONE_TYPES = ['menu', 'grid', 'list', 'carousel', 'banner', 'hero', 'highlight'];
-const CARD_TEMPLATES = ['default', 'compact', 'large', 'minimal', 'media'];
+const CARD_TEMPLATES = ['default', 'compact', 'large', 'minimal', 'media', 'icon-label', 'text-only', 'image-title-desc-price'];
 // Zones that need a gridConfig (rows/cols) to place items
 const REQUIRES_GRID_CONFIG = ['grid', 'list', 'carousel'];
 
@@ -64,8 +64,26 @@ function validateBadgeConfig(badgeConfig) {
   if (badgeConfig.position !== undefined && !BADGE_POSITIONS.includes(badgeConfig.position)) {
     errors.push(`badgeConfig.position must be one of ${BADGE_POSITIONS.join(', ')}`);
   }
-  if (badgeConfig.text === undefined && badgeConfig.price === undefined) {
-    errors.push('badgeConfig needs at least text or price');
+  if (badgeConfig.tiers !== undefined) {
+    if (!Array.isArray(badgeConfig.tiers) || badgeConfig.tiers.length === 0) {
+      errors.push('badgeConfig.tiers must be a non-empty array');
+    } else {
+      badgeConfig.tiers.forEach((tier, i) => {
+        if (!tier || typeof tier !== 'object') {
+          errors.push(`badgeConfig.tiers[${i}] must be an object`);
+          return;
+        }
+        if (typeof tier.label !== 'string' || tier.label.trim().length === 0) {
+          errors.push(`badgeConfig.tiers[${i}].label must be a non-empty string`);
+        }
+        if (typeof tier.price !== 'number' || !Number.isFinite(tier.price) || tier.price < 0) {
+          errors.push(`badgeConfig.tiers[${i}].price must be a non-negative number`);
+        }
+      });
+    }
+  }
+  if (badgeConfig.text === undefined && badgeConfig.price === undefined && badgeConfig.tiers === undefined) {
+    errors.push('badgeConfig needs at least text, price, or tiers');
   }
   return errors;
 }
@@ -73,6 +91,7 @@ function validateBadgeConfig(badgeConfig) {
 const HEX_OR_CSS_COLOR = /^(#[0-9a-fA-F]{3,8}|rgba?\([^)]+\)|hsla?\([^)]+\)|[a-zA-Z]+)$/;
 const FONT_SIZE_MIN = 8;
 const FONT_SIZE_MAX = 128;
+const ZONE_TORN_EDGES = ['top', 'bottom', 'left', 'right'];
 const BACKGROUND_TYPES = ['image', 'split'];
 const BACKGROUND_PATTERNS = ['none', 'torn-paper'];
 const BACKGROUND_ANGLE_MAX = 180;
@@ -136,6 +155,21 @@ function validateBackgroundStyle(style) {
     const n = Number(style.fontSize);
     if (!Number.isFinite(n) || n < FONT_SIZE_MIN || n > FONT_SIZE_MAX) {
       errors.push(`backgroundStyle.fontSize must be a number between ${FONT_SIZE_MIN} and ${FONT_SIZE_MAX}px`);
+    }
+  }
+  if (style.torn !== undefined && style.torn !== null) {
+    if (typeof style.torn !== 'object' || Array.isArray(style.torn)) {
+      errors.push('backgroundStyle.torn must be an object or null');
+    } else {
+      if (!ZONE_TORN_EDGES.includes(style.torn.edge)) {
+        errors.push(`backgroundStyle.torn.edge must be one of ${ZONE_TORN_EDGES.join(', ')}`);
+      }
+      if (style.torn.jaggedness !== undefined) {
+        const j = Number(style.torn.jaggedness);
+        if (!Number.isFinite(j) || j < 1 || j > 10) {
+          errors.push('backgroundStyle.torn.jaggedness must be a number between 1 and 10');
+        }
+      }
     }
   }
   return errors;
@@ -213,6 +247,7 @@ function parseZone(zone) {
       col: zi.col,
       index: zi.index,
       order: zi.order,
+      qty: zi.qty,
       item: zi.item,
     })),
   };
