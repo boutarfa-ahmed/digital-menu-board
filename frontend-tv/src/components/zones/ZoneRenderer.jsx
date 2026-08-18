@@ -212,10 +212,17 @@ export default function ZoneRenderer({ zone, theme, settings }) {
   // per-zone background replaces it only when explicitly set
   const bg = zStyle.bgImage ? undefined : zStyle.bg
   const text = zStyle.text || (isDark ? '#FFFFFF' : '#1A1A1A')
+  const muted = text === '#FFFFFF' ? '#EEEEEE' : '#8A8A8A'
+  // Tailwind resolves var(--color-menu-text) at the :root declaration, which
+  // freezes --menu-text to the root theme color. Re-export the runtime tokens
+  // under their --color-* names directly on the zone so the overrides win.
   const cssVars = {
+    '--color-menu-accent': accent,
     '--menu-accent': accent,
+    '--color-menu-text': text,
     '--menu-text': text,
-    '--menu-text-muted': text === '#FFFFFF' ? '#EEEEEE' : '#8A8A8A',
+    '--color-menu-text-muted': muted,
+    '--menu-text-muted': muted,
   }
 
   const isBanner = zone.zoneType === 'banner' || zone.zoneType === 'hero'
