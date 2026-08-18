@@ -1777,7 +1777,7 @@ function ScreenLayoutCanvas() {
                       <div className="grid grid-cols-2 gap-2">
                         <button
                           type="button"
-                          onClick={() => patchStyle({ dark: false, bg: undefined })}
+                          onClick={() => patchStyle({ dark: false, bg: undefined, text: undefined })}
                           className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
                             styleCfg.dark
                               ? 'border-gray-200 text-gray-500 dark:border-gray-700 dark:text-gray-400'
@@ -1788,7 +1788,7 @@ function ScreenLayoutCanvas() {
                         </button>
                         <button
                           type="button"
-                          onClick={() => patchStyle({ dark: true, bg: undefined })}
+                          onClick={() => patchStyle({ dark: true, bg: undefined, text: undefined })}
                           className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
                             styleCfg.dark
                               ? 'border-brand-500 bg-brand-50 text-brand-600 dark:bg-brand-500/15 dark:text-brand-400'
@@ -1797,6 +1797,59 @@ function ScreenLayoutCanvas() {
                         >
                           Sombre
                         </button>
+                      </div>
+                      <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
+                        Clair = image/fond clair → texte foncé. Sombre = image/fond sombre → texte clair.
+                      </p>
+                    </div>
+
+                    <div>
+                      <Label>Aperçu du contraste</Label>
+                      <div
+                        className="flex items-center gap-3 overflow-hidden rounded-lg border border-gray-200 p-3 dark:border-gray-700"
+                        style={{ background: styleCfg.bg || (styleCfg.dark ? STYLE_DEFAULTS.bgDark : STYLE_DEFAULTS.bgLight) }}
+                      >
+                        <span
+                          className="size-8 flex-none rounded-full border-2 border-dashed"
+                          style={{ borderColor: styleCfg.accent || STYLE_DEFAULTS.accent, background: 'rgba(255,255,255,0.6)' }}
+                        />
+                        <div className="min-w-0 flex-1">
+                          <p
+                            className="truncate font-bold uppercase tracking-wide"
+                            style={{ color: styleCfg.accent || STYLE_DEFAULTS.accent, fontSize: 13 }}
+                          >
+                            {selected?.name || 'Titre de la zone'}
+                          </p>
+                          <p
+                            className="truncate text-xs font-semibold"
+                            style={{ color: styleCfg.text || (styleCfg.dark ? STYLE_DEFAULTS.textDark : STYLE_DEFAULTS.textLight) }}
+                          >
+                            Nom du produit 12,50€
+                          </p>
+                          <p
+                            className="truncate text-[10px]"
+                            style={{
+                              color:
+                                (styleCfg.text || (styleCfg.dark ? STYLE_DEFAULTS.textDark : STYLE_DEFAULTS.textLight)) ===
+                                STYLE_DEFAULTS.textDark
+                                  ? '#EEEEEE'
+                                  : '#8A8A8A',
+                            }}
+                          >
+                            Description détaillée du produit
+                          </p>
+                        </div>
+                        <span
+                          className="flex-none rounded px-2 py-0.5 font-bold uppercase"
+                          style={{
+                            background: '#FFFFFF',
+                            color: '#0D0D0D',
+                            fontSize: 9,
+                            clipPath: TORN_CLIP,
+                          }}
+                        >
+                          {selected?.badgeConfig?.text || 'PROMO'}
+                        </span>
                       </div>
                     </div>
 
