@@ -224,6 +224,7 @@ router.put('/:id/layout', auth, requireRole('admin'), async (req, res) => {
     try {
       const layout = await replaceLayout(prisma, id, req.body);
       const theme = await resolveLayoutTheme(prisma, layout);
+      broadcast({ type: 'layout:updated', screenId: id, timestamp: Date.now() });
       res.json({ ...parseZoneLayout(layout), theme });
     } catch (err) {
       if (err.name === 'ZoneValidationError') return res.status(400).json({ error: err.message });

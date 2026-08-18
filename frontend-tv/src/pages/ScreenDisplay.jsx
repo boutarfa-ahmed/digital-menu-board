@@ -35,12 +35,51 @@ async function firstScreenWithLayout() {
   return null
 }
 
+// Live-update channel: the backend broadcasts { type:'layout:updated', screenId }
+// on every zone/layout/settings change; we refetch the layout immediately when
+// it concerns the screen currently displayed. The polling below is the fallback.
+function useLayoutEvents(screenId, onUpdate) {
+  useEffect(() => {
+    if (screenId == null) return undefined
+    let ws = null
+    let retry = null
+
+    const connect = () => {
+      const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
+      ws = new WebSocket(`${proto}://${window.location.host}/api`)
+      ws.onopen = () => {}
+      ws.onmessage = (ev) => {
+        try {
+          const msg = JSON.parse(ev.data)
+          if (msg.type === 'layout:updated' && msg.screenId === screenId) onUpdate()
+        } catch {
+          /* ignore */
+        }
+      }
+      ws.onclose = () => {
+        ws = null
+        retry = setTimeout(connect, 4000)
+      }
+      ws.onerror = () => ws && ws.close()
+    }
+    connect()
+    return () => {
+      clearTimeout(retry)
+      if (ws) ws.close()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screenId])
+}
+
 export default function ScreenDisplay({ screenId }) {
   const [resolvedId, setResolvedId] = useState(() => initialScreenId(screenId))
   const [layout, setLayout] = useState(null)
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(true)
   const [autoSelected, setAutoSelected] = useState(false)
+  const [revision, setRevision] = useState(0)
+
+  useLayoutEvents(resolvedId, () => setRevision((r) => r + 1))
 
   useEffect(() => {
     let cancelled = false
@@ -84,6 +123,24 @@ export default function ScreenDisplay({ screenId }) {
       cancelled = true
     }
   }, [resolvedId])
+
+  useEffect(() => {
+    if (revision === 0) return
+    let cancelled = false
+    fetchScreenLayout(resolvedId)
+      .then((data) => {
+        if (cancelled) return
+        if (hasZones(data)) {
+          setLayout(data)
+          setError(null)
+        }
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [revision])
 
   useEffect(() => {
     let cancelled = false
@@ -147,6 +204,11 @@ export default function ScreenDisplay({ screenId }) {
 
   return (
     <>
+      {!loading && hasZones(layout) ? (
+        <div className="pointer-events-none fixed left-2 top-2 z-[60] rounded bg-black/55 px-2 py-0.5 font-menu-body text-[11px] text-white/60">
+          TV n°{resolvedId}
+        </div>
+      ) : null}
       {autoSelected ? (
         <div className="z-50 flex w-full items-center justify-center gap-2 py-1 font-menu-body text-sm text-menu-text-muted">
           TV auto : écran n°{resolvedId} — utilisez <span className="text-menu-accent">?id={resolvedId}</span> pour le fixer
