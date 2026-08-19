@@ -15,6 +15,7 @@ const {
   replaceLayout,
   validatePublishableLayout,
   validateBackgroundConfig,
+  validateElementsConfig,
 } = require('../services/zone.service');
 const { resolveLayoutTheme, themeExists } = require('../services/theme.service');
 const { broadcast } = require('../services/broadcast');
@@ -159,6 +160,11 @@ router.post('/:id/layout', auth, requireRole('admin'), async (req, res) => {
       return res.status(400).json({ error: bgErrors.join('; ') });
     }
 
+    const elErrors = validateElementsConfig(req.body?.settings?.elements);
+    if (elErrors.length > 0) {
+      return res.status(400).json({ error: elErrors.join('; ') });
+    }
+
     const layout = await prisma.screenLayout.create({
       data: {
         screenId: id,
@@ -222,6 +228,13 @@ router.put('/:id/layout', auth, requireRole('admin'), async (req, res) => {
     req.body.cells === undefined;
   if (isZonePayload || isSettingsOnly) {
     try {
+      // A settings-only write must never fail with a raw P2003: when no layout
+      // row exists yet, replaceLayout creates one via ScreenLayout.screenId (FK
+      // to Screen), which throws for a nonexistent screen. Same 404 convention
+      // as GET/POST /:id/layout.
+      const screen = await prisma.screen.findUnique({ where: { id } });
+      if (!screen) return res.status(404).json({ error: 'Screen not found' });
+
       const layout = await replaceLayout(prisma, id, req.body);
       const theme = await resolveLayoutTheme(prisma, layout);
       broadcast({ type: 'layout:updated', screenId: id, timestamp: Date.now() });

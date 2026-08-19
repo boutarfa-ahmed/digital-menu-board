@@ -114,7 +114,7 @@ function GridContent({ zone, theme }) {
         zi ? (
           <div
             key={zi.itemId}
-            className={`min-h-0 min-w-0 ${isIconLabel || isTextOnly ? 'flex items-center justify-center' : ''}`}
+            className={`m-auto min-h-0 min-w-0 ${isIconLabel || isTextOnly ? 'flex items-center justify-center' : ''}`}
           >
             {cellContent(zi, i)}
           </div>

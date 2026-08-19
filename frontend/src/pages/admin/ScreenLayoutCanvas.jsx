@@ -86,6 +86,8 @@ const BG_DEFAULTS = {
   angle: 0,
   pattern: 'none',
   patternColor: '#FFFFFF',
+  seamsEnabled: true,
+  hiddenSeams: [],
 }
 
 // Subtle paper grain overlay (SVG feTurbulence -> monochrome alpha noise)
@@ -102,6 +104,104 @@ function tornStripDataUri(color) {
 
 const gpt = (g) => `${(g * 100) / 12}%`
 
+// Vertical torn strip (jagged left/right edges) for zone seam dividers
+function tornStripVDataUri(color) {
+  return `url("data:image/svg+xml,${encodeURIComponent(
+    `<svg xmlns='http://www.w3.org/2000/svg' width='40' height='64'><path d='M0 0 L7 6 L2 13 L9 20 L3 27 L10 34 L4 41 L11 48 L5 55 L12 61 L6 64 L34 64 L38 59 L31 52 L36 45 L30 38 L35 31 L29 24 L34 17 L28 10 L33 4 L34 0 Z' fill='${color}'/></svg>`
+  )}")`
+}
+
+// Torn-paper dividers between adjacent zones (mirrors frontend-tv ZoneSeams).
+// Keys must match the TV: `${type}:${pos}:${a}:${span}`. `onToggle` (when
+// provided) makes lines clickable in the Fond preview to hide them per line;
+// otherwise markers are display-only (pointer-events none).
+function computeSeamsAdmin(zones) {
+  const v = []
+  const h = []
+  const push = (list, type, pos, a, span) => {
+    const key = `${type}:${pos}:${a}:${span}`
+    if (!list.some((x) => x.key === key)) list.push({ pos, a, span, key })
+  }
+  for (let i = 0; i < zones.length; i++) {
+    for (let j = 0; j < i; j++) {
+      const a = zones[i]
+      const b = zones[j]
+      const yTop = Math.max(a.y, b.y)
+      const ySpan = Math.min(a.y + a.h, b.y + b.h) - yTop
+      const xLeft = Math.max(a.x, b.x)
+      const xSpan = Math.min(a.x + a.w, b.x + b.w) - xLeft
+      if (ySpan > 0) {
+        if (a.x + a.w === b.x) push(v, 'v', b.x, yTop, ySpan)
+        if (b.x + b.w === a.x) push(v, 'v', a.x, yTop, ySpan)
+      }
+      if (xSpan > 0) {
+        if (a.y + a.h === b.y) push(h, 'h', b.y, xLeft, xSpan)
+        if (b.y + b.h === a.y) push(h, 'h', a.y, xLeft, xSpan)
+      }
+    }
+  }
+  return { v, h }
+}
+
+const seamLabel = (s) => {
+  if (s.key.startsWith('v')) {
+    return `Ligne verticale · x ${s.pos} (de ${s.a} à ${s.a + s.span})`
+  }
+  return `Ligne horizontale · y ${s.pos} (de ${s.a} à ${s.a + s.span})`
+}
+
+function ZoneSeamMarkers({ zones, color = '#FFFFFF', seamsEnabled = true, hiddenSeams = [], onToggle = null }) {
+  const hidden = new Set(hiddenSeams || [])
+  const interact = typeof onToggle === 'function'
+  const { v, h } = computeSeamsAdmin(zones || [])
+  if (!seamsEnabled) return null
+  const vv = v.filter((s) => !hidden.has(s.key))
+  const hh = h.filter((s) => !hidden.has(s.key))
+  if (vv.length === 0 && hh.length === 0) return null
+  return (
+    <>
+      {vv.map((s) => (
+        <div
+          key={`szv${s.key}`}
+          className={`absolute z-30 ${interact ? 'pointer-events-auto cursor-pointer hover:ring-2 hover:ring-white/70' : 'pointer-events-none'}`}
+          title={interact ? 'Masquer la ligne' : undefined}
+          onClick={interact ? () => onToggle(s.key) : undefined}
+          style={{
+            left: gpt(s.pos),
+            top: gpt(s.a),
+            width: 8,
+            height: gpt(s.span),
+            transform: 'translateX(-50%)',
+            backgroundImage: tornStripVDataUri(color),
+            backgroundRepeat: 'repeat-y',
+            backgroundSize: '8px 13px',
+            opacity: 0.9,
+          }}
+        />
+      ))}
+      {hh.map((s) => (
+        <div
+          key={`szh${s.key}`}
+          className={`absolute z-30 ${interact ? 'pointer-events-auto cursor-pointer hover:ring-2 hover:ring-white/70' : 'pointer-events-none'}`}
+          title={interact ? 'Masquer la ligne' : undefined}
+          onClick={interact ? () => onToggle(s.key) : undefined}
+          style={{
+            left: gpt(s.a),
+            top: gpt(s.pos),
+            width: gpt(s.span),
+            height: 8,
+            transform: 'translateY(-50%)',
+            backgroundImage: tornStripDataUri(color),
+            backgroundRepeat: 'repeat-x',
+            backgroundSize: '13px 8px',
+            opacity: 0.9,
+          }}
+        />
+      ))}
+    </>
+  )
+}
+
 function backgroundCss(bg) {
   if (!bg) return null
   if (bg.type === 'image' && bg.imageUrl) {
@@ -112,45 +212,18 @@ function backgroundCss(bg) {
       backgroundRepeat: 'no-repeat',
     }
   }
-  if (bg.type === 'split') {
-    const dark = bg.dark || BG_DEFAULTS.dark
-    const light = bg.light || BG_DEFAULTS.light
-    const angle = Number(bg.angle) || 0
-    return {
-      backgroundImage: `linear-gradient(${angle + 90}deg, ${dark} 50%, ${light} 50%)`,
-    }
-  }
   return null
 }
 
-// Screen background extras: optional torn-paper texture (grain + jagged divider).
+// Screen background extras: optional torn-paper grain texture. The torn-paper
+// divider between zones is drawn separately (ZoneSeamMarkers / TV ZoneSeams).
 function BackgroundOverlays({ bg }) {
   if (!bg || bg.pattern !== 'torn-paper') return null
-  const color = bg.patternColor || BG_DEFAULTS.patternColor
-  const isSplit = bg.type === 'split'
-  const angle = Number(bg.angle) || 0
   return (
-    <>
-      <div
-        className="pointer-events-none absolute inset-0"
-        style={{ backgroundImage: PAPER_GRAIN, backgroundRepeat: 'repeat', opacity: 0.14 }}
-      />
-      {isSplit && (
-        <div
-          className="pointer-events-none absolute left-1/2 top-1/2"
-          style={{
-            width: '300%',
-            height: 40,
-            transform: `translate(-50%, -50%) rotate(${angle - 90}deg)`,
-            transformOrigin: 'center',
-            backgroundImage: tornStripDataUri(color),
-            backgroundRepeat: 'repeat-x',
-            backgroundSize: '64px 40px',
-            opacity: 0.9,
-          }}
-        />
-      )}
-    </>
+    <div
+      className="pointer-events-none absolute inset-0"
+      style={{ backgroundImage: PAPER_GRAIN, backgroundRepeat: 'repeat', opacity: 0.14 }}
+    />
   )
 }
 
@@ -597,9 +670,20 @@ function ScreenLayoutCanvas() {
   const [zoneDrag, setZoneDrag] = useState(false)
   const [trashOver, setTrashOver] = useState(false)
 
+  // Free-floating decorative elements (layout.settings.elements)
+  const [elements, setElements] = useState([])
+  const [selectedElementId, setSelectedElementId] = useState(null)
+  const [elGesture, setElGesture] = useState(null)
+  const [elUploading, setElUploading] = useState(false)
+  const elAddInputRef = useRef(null)
+  const elChangeInputRef = useRef(null)
+  const elAddTypeRef = useRef('image')
+
   const canvasRef = useRef(null)
   const zonesRef = useRef([])
   zonesRef.current = layout?.zones || []
+  const elementsRef = useRef([])
+  elementsRef.current = elements
 
   const load = () => {
     setLoading(true)
@@ -616,6 +700,7 @@ function ScreenLayoutCanvas() {
       .then(([scr, lay, cats, menu]) => {
         setScreen(scr)
         setLayout(lay)
+        setElements(lay?.settings?.elements || [])
         setCategories(Array.isArray(cats) ? cats : [])
         setItems(Array.isArray(menu) ? menu : [])
       })
@@ -663,6 +748,44 @@ function ScreenLayoutCanvas() {
       start: cellFromEvent(e),
       orig: { x: zone.x, y: zone.y, w: zone.w, h: zone.h },
       rect: { x: zone.x, y: zone.y, w: zone.w, h: zone.h },
+    })
+  }
+
+  // Elements are NOT grid-locked — free float percentages of the canvas
+  const pctFromEvent = (e) => {
+    const rect = canvasRef.current.getBoundingClientRect()
+    return {
+      x: clamp(((e.clientX - rect.left) / rect.width) * 100, 0, 100),
+      y: clamp(((e.clientY - rect.top) / rect.height) * 100, 0, 100),
+    }
+  }
+
+  const startElMove = (e, el) => {
+    if (e.button !== 0) return
+    e.preventDefault()
+    const pt = pctFromEvent(e)
+    setElGesture({
+      elId: el.id,
+      mode: 'move',
+      grab: { x: pt.x - el.x, y: pt.y - el.y },
+      start: pt,
+      orig: { x: el.x, y: el.y, w: el.w, h: el.h },
+      rect: { x: el.x, y: el.y, w: el.w, h: el.h },
+    })
+  }
+
+  const startElResize = (e, el, dir) => {
+    if (e.button !== 0) return
+    e.preventDefault()
+    e.stopPropagation()
+    const pt = pctFromEvent(e)
+    setElGesture({
+      elId: el.id,
+      mode: 'resize',
+      dir,
+      start: pt,
+      orig: { x: el.x, y: el.y, w: el.w, h: el.h },
+      rect: { x: el.x, y: el.y, w: el.w, h: el.h },
     })
   }
 
@@ -734,6 +857,65 @@ function ScreenLayoutCanvas() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gesture])
+
+  useEffect(() => {
+    if (!elGesture) return
+
+    const onMove = (e) => {
+      const pt = pctFromEvent(e)
+      const { mode, dir, grab, start, orig } = elGesture
+      let rect = { ...orig }
+
+      if (mode === 'move') {
+        rect.x = clamp(pt.x - grab.x, 0, 100 - orig.w)
+        rect.y = clamp(pt.y - grab.y, 0, 100 - orig.h)
+      } else {
+        const dx = pt.x - start.x
+        const dy = pt.y - start.y
+        if (dir.includes('e')) rect.w = orig.w + dx
+        if (dir.includes('s')) rect.h = orig.h + dy
+        if (dir.includes('w')) {
+          rect.x = orig.x + dx
+          rect.w = orig.w - dx
+        }
+        if (dir.includes('n')) {
+          rect.y = orig.y + dy
+          rect.h = orig.h - dy
+        }
+        rect.w = Math.max(2, rect.w)
+        rect.h = Math.max(2, rect.h)
+        rect.x = clamp(rect.x, 0, 100 - rect.w)
+        rect.y = clamp(rect.y, 0, 100 - rect.h)
+      }
+
+      setElGesture((g) => (g ? { ...g, rect } : g))
+    }
+
+    const onUp = () => {
+      const g = elGesture
+      setElGesture(null)
+      if (!g) return
+      const changed =
+        g.rect.x !== g.orig.x || g.rect.y !== g.orig.y || g.rect.w !== g.orig.w || g.rect.h !== g.orig.h
+      if (!changed) {
+        setSelectedElementId(g.elId)
+        return
+      }
+      const next = elementsRef.current.map((el) => (el.id === g.elId ? { ...el, ...g.rect } : el))
+      setElements(next)
+      saveElements(next)
+    }
+
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onUp)
+    return () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onUp)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [elGesture])
 
   const commitZone = async (zoneId, rect) => {
     try {
@@ -1105,6 +1287,7 @@ function ScreenLayoutCanvas() {
   const pct = (cells) => `${(cells / GRID) * 100}%`
 
   const selected = layout?.zones?.find((z) => z.id === selectedId) || null
+  const selectedElement = elements.find((e) => e.id === selectedElementId) || null
   const publishIssues = isAdmin ? validateLayoutForPublish(layout) : []
 
   const filteredItems = items.filter((it) => {
@@ -1156,7 +1339,15 @@ function ScreenLayoutCanvas() {
   // T7.6 — screen background editor (layout.settings.background)
   const screenBg = layout?.settings?.background || null
   const openBg = () => {
-    setBgForm(screenBg ? { ...screenBg } : { ...BG_DEFAULTS })
+    setBgForm(
+      screenBg
+        ? {
+            ...screenBg,
+            seamsEnabled: screenBg.seamsEnabled !== false,
+            hiddenSeams: Array.isArray(screenBg.hiddenSeams) ? screenBg.hiddenSeams : [],
+          }
+        : { ...BG_DEFAULTS }
+    )
     setBgOpen(true)
     setError('')
   }
@@ -1166,16 +1357,25 @@ function ScreenLayoutCanvas() {
     setError('')
     try {
       const settings = { ...(layout.settings || {}) }
-      // Only a real image is a valid screen background (image type);
-      // without one the background is simply removed.
+      // Image present -> full image background. No image but torn-paper texture
+      // selected -> texture-only background (torn dividers between zones).
+      // Otherwise the background is simply removed.
+      const pattern = BG_PATTERNS.includes(bgForm?.pattern) ? bgForm.pattern : 'none'
+      const seamFields = {
+        seamsEnabled: bgForm?.seamsEnabled !== false,
+        hiddenSeams: Array.isArray(bgForm?.hiddenSeams) ? bgForm.hiddenSeams : [],
+      }
       settings.background = bgForm?.imageUrl
         ? {
             type: 'image',
             imageUrl: bgForm.imageUrl,
-            pattern: BG_PATTERNS.includes(bgForm.pattern) ? bgForm.pattern : 'none',
+            pattern,
             patternColor: bgForm.patternColor || BG_DEFAULTS.patternColor,
+            ...seamFields,
           }
-        : null
+        : pattern === 'torn-paper'
+          ? { pattern, patternColor: bgForm.patternColor || BG_DEFAULTS.patternColor, ...seamFields }
+          : null
       await api.put(`/screens/${id}/layout`, { settings })
       await load()
       setBgOpen(false)
@@ -1228,6 +1428,126 @@ function ScreenLayoutCanvas() {
       setZoneImgUploading(false)
       e.target.value = ''
     }
+  }
+  // T8 — free-floating decorative elements (layout.settings.elements)
+  const newElementId = () =>
+    typeof crypto !== 'undefined' && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `el_${Date.now()}`
+  const nextElementZ = () => {
+    const maxZ = elementsRef.current.reduce((m, e) => Math.max(m, e.zIndex ?? 10), 0)
+    return maxZ === 0 ? 10 : maxZ + 1
+  }
+  const saveElements = async (nextElements) => {
+    setError('')
+    try {
+      await api.put(`/screens/${id}/layout`, {
+        // always keep existing settings sub-keys (background, showPrices, …)
+        settings: { ...(layout.settings || {}), elements: nextElements },
+      })
+      setElements(nextElements)
+      setLayout((l) =>
+        l ? { ...l, settings: { ...(l.settings || {}), elements: nextElements } } : l
+      )
+    } catch (err) {
+      setError(err.response?.data?.error || 'Impossible d’enregistrer les éléments')
+      await load()
+    }
+  }
+  const addElementToState = async (el) => {
+    const next = [...elementsRef.current, el]
+    setSelectedElementId(el.id)
+    setElements(next)
+    await saveElements(next)
+  }
+  const addTextElement = () => {
+    const el = {
+      id: newElementId(),
+      type: 'text',
+      x: 35,
+      y: 45,
+      w: 30,
+      h: 10,
+      zIndex: nextElementZ(),
+      text: 'Nouveau texte',
+      fontSize: 24,
+      color: '#FFFFFF',
+    }
+    addElementToState(el)
+  }
+  const openElAddPicker = (type) => {
+    elAddTypeRef.current = type
+    elAddInputRef.current?.click()
+  }
+  const handleElAddUpload = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setElUploading(true)
+    setError('')
+    try {
+      const fd = new FormData()
+      fd.append('image', file)
+      const { data } = await api.post('/upload', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      const el = {
+        id: newElementId(),
+        type: elAddTypeRef.current,
+        x: 40,
+        y: 40,
+        w: 20,
+        h: 20,
+        zIndex: nextElementZ(),
+        imageUrl: data.url,
+      }
+      await addElementToState(el)
+    } catch (err) {
+      setError(err.response?.data?.error || 'Échec de l’upload de l’image')
+    } finally {
+      setElUploading(false)
+      e.target.value = ''
+    }
+  }
+  const handleElChangeUpload = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file || !selectedElementId) return
+    setElUploading(true)
+    setError('')
+    try {
+      const fd = new FormData()
+      fd.append('image', file)
+      const { data } = await api.post('/upload', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      patchElementById(selectedElementId, { imageUrl: data.url })
+    } catch (err) {
+      setError(err.response?.data?.error || 'Échec de l’upload de l’image')
+    } finally {
+      setElUploading(false)
+      e.target.value = ''
+    }
+  }
+  const patchElementById = async (elId, patch) => {
+    const next = elementsRef.current.map((el) => (el.id === elId ? { ...el, ...patch } : el))
+    setElements(next)
+    await saveElements(next)
+  }
+  const deleteElement = async (elId) => {
+    const next = elementsRef.current.filter((el) => el.id !== elId)
+    if (selectedElementId === elId) setSelectedElementId(null)
+    setElements(next)
+    await saveElements(next)
+  }
+  const sendElementToFront = (elId) => {
+    const maxZ = elementsRef.current.reduce((m, e) => Math.max(m, e.zIndex ?? 10), 10)
+    patchElementById(elId, { zIndex: maxZ + 1 })
+  }
+  const sendElementToBack = (elId) => {
+    const minZ = elementsRef.current.reduce(
+      (m, e) => Math.min(m, e.zIndex ?? 10),
+      Number.MAX_SAFE_INTEGER
+    )
+    patchElementById(elId, { zIndex: minZ - 1 })
   }
   const removeBackground = async () => {
     if (!layout) return
@@ -1373,12 +1693,13 @@ function ScreenLayoutCanvas() {
         {isAdmin && screen && layout && panelOpen && (
           <aside className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white lg:w-72 lg:flex-none dark:border-gray-800 dark:bg-white/[0.03]">
             <div className="flex border-b border-gray-100 dark:border-gray-800">
-              {[
-                { key: 'produits', label: 'Produits' },
-                { key: 'presets', label: 'Presets' },
-                { key: 'zone', label: 'Config' },
-                { key: 'style', label: 'Style' },
-              ].map((t) => (
+{[
+                    { key: 'produits', label: 'Produits' },
+                    { key: 'presets', label: 'Presets' },
+                    { key: 'zone', label: 'Config' },
+                    { key: 'style', label: 'Style' },
+                    { key: 'elements', label: 'Éléments' },
+                  ].map((t) => (
                 <button
                   key={t.key}
                   type="button"
@@ -2015,6 +2336,224 @@ function ScreenLayoutCanvas() {
                   Sélectionnez une zone pour la styler.
                 </div>
               ))}
+
+            {panelTab === 'elements' && (
+              <>
+                <div className="space-y-3 border-b border-gray-100 p-4 dark:border-gray-800">
+                  <p className="text-xs text-gray-400">
+                    Éléments libres flottants (position en %, hors grille)
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={addTextElement}
+                      className="flex-1 rounded-lg border px-2 py-2 text-sm font-medium transition-colors hover:border-brand-300 hover:text-brand-600 dark:border-gray-700 dark:text-gray-300"
+                    >
+                      Texte
+                    </button>
+                    <button
+                      type="button"
+                      disabled={elUploading}
+                      onClick={() => openElAddPicker('image')}
+                      className="flex-1 rounded-lg border px-2 py-2 text-sm font-medium transition-colors hover:border-brand-300 hover:text-brand-600 dark:border-gray-700 dark:text-gray-300"
+                    >
+                      {elUploading ? 'Upload...' : 'Image'}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={elUploading}
+                      onClick={() => openElAddPicker('logo')}
+                      className="flex-1 rounded-lg border px-2 py-2 text-sm font-medium transition-colors hover:border-brand-300 hover:text-brand-600 dark:border-gray-700 dark:text-gray-300"
+                    >
+                      Logo
+                    </button>
+                  </div>
+                  <input
+                    ref={elAddInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={handleElAddUpload}
+                  />
+                </div>
+
+                <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
+                  {elements.length === 0 && (
+                    <p className="text-sm text-gray-400">Aucun élément.</p>
+                  )}
+                  {elements.map((el) => (
+                    <div
+                      key={el.id}
+                      onClick={() => setSelectedElementId(el.id)}
+                      className={`flex cursor-pointer items-center gap-3 rounded-lg border p-2 transition-colors ${
+                        selectedElementId === el.id
+                          ? 'border-brand-500 bg-brand-50 dark:bg-brand-500/10'
+                          : 'border-gray-200 dark:border-gray-700'
+                      }`}
+                    >
+                      {el.type === 'text' ? (
+                        <span className="flex h-9 w-9 flex-none items-center justify-center rounded text-[10px] font-bold uppercase">
+                          Tx
+                        </span>
+                      ) : el.imageUrl ? (
+                        <img
+                          src={el.imageUrl}
+                          alt=""
+                          className="h-9 w-9 flex-none rounded object-cover"
+                        />
+                      ) : (
+                        <span className="flex h-9 w-9 flex-none items-center justify-center rounded text-xs font-bold text-gray-500 dark:text-gray-400">
+                          {el.type.slice(0, 2).toUpperCase()}
+                        </span>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium capitalize text-gray-800 dark:text-white/90">
+                          {el.type}
+                        </p>
+                        <p className="truncate text-xs text-gray-400">
+                          {el.type === 'text' ? el.text : el.imageUrl || '—'}
+                        </p>
+                      </div>
+                      <span className="text-[10px] text-gray-400">z{el.zIndex ?? 10}</span>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          deleteElement(el.id)
+                        }}
+                        title="Supprimer l'élément"
+                        className="flex-none rounded-md p-1.5 text-gray-400 transition-colors hover:bg-error-50 hover:text-error-600 dark:hover:bg-error-500/10"
+                      >
+                        <TrashBinIcon className="size-4" />
+                      </button>
+                    </div>
+                  ))}
+
+                  {selectedElement && (
+                    <div className="space-y-4 rounded-lg border border-gray-200 p-3 dark:border-gray-700">
+                      <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">
+                        Éditer ({selectedElement.type})
+                      </p>
+                      {selectedElement.type === 'text' ? (
+                        <>
+                          <div>
+                            <Label htmlFor={`el-text-${selectedElement.id}`}>Texte</Label>
+                            <Input
+                              id={`el-text-${selectedElement.id}`}
+                              type="text"
+                              value={selectedElement.text || ''}
+                              onChange={(e) => patchElementById(selectedElement.id, { text: e.target.value })}
+                            />
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <Label htmlFor={`el-size-${selectedElement.id}`}>Taille (px)</Label>
+                              <Input
+                                id={`el-size-${selectedElement.id}`}
+                                type="number"
+                                min="8"
+                                max="200"
+                                value={selectedElement.fontSize ?? 24}
+                                onChange={(e) =>
+                                  patchElementById(selectedElement.id, { fontSize: Number(e.target.value) || 24 })
+                                }
+                              />
+                            </div>
+                            <div>
+                              <Label htmlFor={`el-color-${selectedElement.id}`}>Couleur</Label>
+                              <input
+                                id={`el-color-${selectedElement.id}`}
+                                type="color"
+                                value={selectedElement.color || '#FFFFFF'}
+                                onChange={(e) => patchElementById(selectedElement.id, { color: e.target.value })}
+                                className="h-10 w-14 cursor-pointer rounded-md border border-gray-300 bg-transparent p-1 dark:border-gray-700"
+                              />
+                            </div>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="space-y-3">
+                          {selectedElement.imageUrl ? (
+                            <img
+                              src={selectedElement.imageUrl}
+                              alt=""
+                              className="h-24 w-full rounded-lg border border-gray-200 object-contain dark:border-gray-700"
+                            />
+                          ) : null}
+                          <label
+                            className={`flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-gray-300 px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:border-brand-300 hover:text-brand-600 dark:border-gray-700 dark:text-gray-300 dark:hover:text-brand-400 ${
+                              elUploading ? 'opacity-60' : ''
+                            }`}
+                          >
+                            {elUploading ? 'Upload...' : selectedElement.imageUrl ? 'Changer l’image' : 'Importer une image'}
+                            <input
+                              ref={elChangeInputRef}
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              onChange={handleElChangeUpload}
+                              disabled={elUploading}
+                            />
+                          </label>
+                        </div>
+                      )}
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <Label htmlFor={`el-z-${selectedElement.id}`}>Calque (z-index)</Label>
+                          <Input
+                            id={`el-z-${selectedElement.id}`}
+                            type="number"
+                            value={selectedElement.zIndex ?? 10}
+                            onChange={(e) =>
+                              patchElementById(selectedElement.id, { zIndex: Number(e.target.value) || 0 })
+                            }
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor={`el-rot-${selectedElement.id}`}>Rotation (°)</Label>
+                          <Input
+                            id={`el-rot-${selectedElement.id}`}
+                            type="number"
+                            min="-180"
+                            max="180"
+                            value={selectedElement.rotation ?? 0}
+                            onChange={(e) =>
+                              patchElementById(selectedElement.id, { rotation: Number(e.target.value) || 0 })
+                            }
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => sendElementToFront(selectedElement.id)}
+                          className="rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:border-brand-300 hover:text-brand-600 dark:border-gray-700 dark:text-gray-300"
+                        >
+                          Premier plan
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => sendElementToBack(selectedElement.id)}
+                          className="rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:border-brand-300 hover:text-brand-600 dark:border-gray-700 dark:text-gray-300"
+                        >
+                          Arrière-plan
+                        </button>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => deleteElement(selectedElement.id)}
+                        className="w-full rounded-lg border border-error-200 px-3 py-2 text-sm font-medium text-error-600 transition-colors hover:bg-error-50 dark:border-error-500/30 dark:text-error-400 dark:hover:bg-error-500/10"
+                      >
+                        Supprimer cet élément
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
           </aside>
         )}
 
@@ -2072,6 +2611,14 @@ function ScreenLayoutCanvas() {
               }}
             >
               <BackgroundOverlays bg={screenBg} />
+              {screenBg?.pattern === 'torn-paper' && (
+                <ZoneSeamMarkers
+                  zones={layout.zones || []}
+                  color={screenBg.patternColor || '#FFFFFF'}
+                  seamsEnabled={screenBg.seamsEnabled}
+                  hiddenSeams={screenBg.hiddenSeams}
+                />
+              )}
               {(layout.zones || []).map((zone) => {
                 const active = gesture?.zoneId === zone.id
                 const rect = active ? gesture.rect : zone
@@ -2443,6 +2990,65 @@ function ScreenLayoutCanvas() {
                 )
               })}
 
+              {/* T8 — free-floating elements overlay (editor-only, shown in the
+                  "Éléments" tab so it doesn't clutter zone editing). Editor z-index
+                  is offset by +100 so handles always sit above zone wireframes; the
+                  TV renders the raw el.zIndex. */}
+              {panelTab === 'elements' &&
+                elements.map((el) => {
+                  const active = elGesture?.elId === el.id
+                  const rect = active ? elGesture.rect : el
+                  return (
+                    <div
+                      key={el.id}
+                      onPointerDown={(e) => isAdmin && startElMove(e, el)}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setSelectedElementId(el.id)
+                      }}
+                      className={`absolute border-2 border-dashed ${
+                        selectedElementId === el.id
+                          ? 'border-brand-500'
+                          : 'border-transparent hover:border-brand-300'
+                      } ${isAdmin ? 'cursor-move' : ''}`}
+                      style={{
+                        left: `${rect.x}%`,
+                        top: `${rect.y}%`,
+                        width: `${rect.w}%`,
+                        height: `${rect.h}%`,
+                        transform: el.rotation ? `rotate(${el.rotation}deg)` : undefined,
+                        zIndex: 100 + (el.zIndex ?? 10),
+                      }}
+                    >
+                      {el.type === 'text' ? (
+                        <div
+                          className="flex h-full w-full items-center justify-center overflow-hidden text-center"
+                          style={{ color: el.color || '#fff', fontSize: Math.min(el.fontSize || 24, 14) }}
+                        >
+                          {el.text}
+                        </div>
+                      ) : el.imageUrl ? (
+                        <img src={el.imageUrl} alt="" className="h-full w-full object-contain" />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center bg-gray-700/50 text-[10px] text-gray-300">
+                          {el.type}
+                        </div>
+                      )}
+                      {isAdmin && (
+                        <>
+                          {RESIZE_HANDLES.map(({ dir, cls }) => (
+                            <span
+                              key={dir}
+                              onPointerDown={(e) => startElResize(e, el, dir)}
+                              className={`absolute z-10 size-2.5 rounded-sm border border-white bg-brand-500 ${cls}`}
+                            />
+                          ))}
+                        </>
+                      )}
+                    </div>
+                  )
+                })}
+
               {isAdmin && (
                 <div
                   onDragOver={(e) => {
@@ -2639,6 +3245,25 @@ function ScreenLayoutCanvas() {
           <div className="relative aspect-video w-full overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700">
             <div className="absolute inset-0" style={backgroundCss(bgForm)} />
             <BackgroundOverlays bg={bgForm} />
+            {bgForm?.pattern === 'torn-paper' && (
+              <ZoneSeamMarkers
+                zones={layout?.zones || []}
+                color={bgForm?.patternColor || '#FFFFFF'}
+                seamsEnabled={bgForm?.seamsEnabled}
+                hiddenSeams={bgForm?.hiddenSeams || []}
+                onToggle={(key) =>
+                  setBgForm((prev) => {
+                    const hidden = prev?.hiddenSeams || []
+                    return {
+                      ...(prev || BG_DEFAULTS),
+                      hiddenSeams: hidden.includes(key)
+                        ? hidden.filter((k) => k !== key)
+                        : [...hidden, key],
+                    }
+                  })
+                }
+              />
+            )}
             {(layout?.zones || []).map((z) => {
               const bs = z.backgroundStyle || {}
               const miniBg = bs.bg
@@ -2731,6 +3356,72 @@ function ScreenLayoutCanvas() {
               </div>
             )}
           </div>
+
+          {bgForm?.pattern === 'torn-paper' && (
+            <div className="space-y-3 rounded-lg border border-gray-200 p-3 dark:border-gray-700">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <Label>Lignes papier déchiré</Label>
+                  <p className="text-xs text-gray-400">Jointures entre zones adjacentes</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setBgForm((prev) => ({ ...(prev || BG_DEFAULTS), seamsEnabled: prev?.seamsEnabled !== false ? false : true }))
+                  }
+                  className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${bgForm?.seamsEnabled !== false ? 'bg-brand-600' : 'bg-gray-300 dark:bg-gray-600'}`}
+                  title={bgForm?.seamsEnabled !== false ? 'Masquer toutes les lignes' : 'Afficher toutes les lignes'}
+                >
+                  <span
+                    className={`absolute top-0.5 size-5 rounded-full bg-white shadow transition-all ${bgForm?.seamsEnabled !== false ? 'left-[22px]' : 'left-0.5'}`}
+                  />
+                </button>
+              </div>
+              {(() => {
+                const { v, h } = computeSeamsAdmin(layout?.zones || [])
+                const all = [...v, ...h]
+                if (all.length === 0)
+                  return (
+                    <p className="text-xs text-gray-400">
+                      Aucune zone adjacente : les lignes apparaîtront dès que deux zones se toucheront.
+                    </p>
+                  )
+                const hidden = bgForm?.hiddenSeams || []
+                return (
+                  <ul className="space-y-1.5">
+                    {all.map((s) => {
+                      const isHidden = hidden.includes(s.key)
+                      return (
+                        <li key={s.key} className="flex items-center justify-between gap-2">
+                          <span className={`text-xs ${isHidden ? 'text-gray-400 line-through' : 'text-gray-700 dark:text-white/80'}`}>
+                            {seamLabel(s)}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setBgForm((prev) => {
+                                const hid = prev?.hiddenSeams || []
+                                return {
+                                  ...(prev || BG_DEFAULTS),
+                                  hiddenSeams: isHidden ? hid.filter((k) => k !== s.key) : [...hid, s.key],
+                                }
+                              })
+                            }
+                            className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${isHidden ? 'bg-gray-300 dark:bg-gray-600' : 'bg-brand-600'}`}
+                            title={isHidden ? 'Afficher la ligne' : 'Masquer la ligne'}
+                          >
+                            <span
+                              className={`absolute top-0.5 size-4 rounded-full bg-white shadow transition-all ${isHidden ? 'left-0.5' : 'left-[18px]'}`}
+                            />
+                          </button>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                )
+              })()}
+            </div>
+          )}
         </div>
 
         <div className="mt-6 flex items-center justify-between gap-3">

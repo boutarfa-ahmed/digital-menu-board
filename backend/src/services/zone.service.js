@@ -30,6 +30,21 @@ function serializeJson(value, fallback = null) {
   return JSON.stringify(value);
 }
 
+// Settings are merged key-by-key so a partial settings PUT (e.g. only
+// background, or only showPrices) preserves the other sub-keys instead of
+// wiping them. elements is never stored as null: its "empty" state is [],
+// so an explicit null is normalized back to [] before persisting.
+function mergeSettings(existing, incoming) {
+  const base = parseJson(existing, {});
+  if (!incoming || typeof incoming !== 'object' || Array.isArray(incoming)) {
+    if (base.elements === null) base.elements = [];
+    return base;
+  }
+  const merged = { ...base, ...incoming };
+  if (merged.elements === null) merged.elements = [];
+  return merged;
+}
+
 function validateGridConfig(gridConfig) {
   if (!gridConfig || typeof gridConfig !== 'object' || Array.isArray(gridConfig)) {
     return ['gridConfig must be an object with rows and cols'];
@@ -95,6 +110,8 @@ const FONT_SIZE_MAX = 128;
 const BACKGROUND_TYPES = ['image', 'split'];
 const BACKGROUND_PATTERNS = ['none', 'torn-paper'];
 const BACKGROUND_ANGLE_MAX = 180;
+const ELEMENT_TYPES = ['image', 'text', 'logo'];
+const FONT_SIZE_MAX_TEXT = 200;
 
 // T7.6: screen-level background — split (dark/light 50-50, configurable angle)
 // or an uploaded image, plus an optional torn-paper pattern overlay.
@@ -157,6 +174,65 @@ function validateBackgroundStyle(style) {
       errors.push(`backgroundStyle.fontSize must be a number between ${FONT_SIZE_MIN} and ${FONT_SIZE_MAX}px`);
     }
   }
+  return errors;
+}
+
+// Free-floating decorative layer on top of zones. Elements live inside
+// layout.settings.elements (additive JSON on the existing settings column,
+// no extra model). Percentage-based positioning, not grid-locked.
+function validateElementsConfig(elements) {
+  if (elements === undefined || elements === null) return [];
+  if (!Array.isArray(elements)) return ['settings.elements must be an array'];
+  const errors = [];
+  const seenIds = new Set();
+  const isFiniteNum = (n) => typeof n === 'number' && Number.isFinite(n);
+  elements.forEach((el, i) => {
+    const p = `settings.elements[${i}]`;
+    if (!el || typeof el !== 'object' || Array.isArray(el)) {
+      errors.push(`${p} must be an object`);
+      return;
+    }
+    if (typeof el.id !== 'string' || el.id.trim() === '') {
+      errors.push(`${p}.id must be a non-empty string`);
+    } else if (seenIds.has(el.id)) {
+      errors.push(`settings.elements contains duplicate id "${el.id}"`);
+    } else {
+      seenIds.add(el.id);
+    }
+    if (el.type === undefined) {
+      errors.push(`${p}.type is required and must be one of ${ELEMENT_TYPES.join(', ')}`);
+    } else if (!ELEMENT_TYPES.includes(el.type)) {
+      errors.push(`${p}.type must be one of ${ELEMENT_TYPES.join(', ')}`);
+    }
+    for (const f of ['x', 'y']) {
+      if (!isFiniteNum(el[f]) || el[f] < 0 || el[f] > 100) {
+        errors.push(`${p}.${f} must be a number between 0 and 100`);
+      }
+    }
+    for (const f of ['w', 'h']) {
+      if (!isFiniteNum(el[f]) || el[f] < 0.5 || el[f] > 100) {
+        errors.push(`${p}.${f} must be a number between 0.5 and 100`);
+      }
+    }
+    if (el.rotation !== undefined && (!isFiniteNum(el.rotation) || el.rotation < -180 || el.rotation > 180)) {
+      errors.push(`${p}.rotation must be a number between -180 and 180`);
+    }
+    if (el.zIndex !== undefined && !Number.isInteger(el.zIndex)) {
+      errors.push(`${p}.zIndex must be an integer`);
+    }
+    if ((el.type === 'image' || el.type === 'logo') && (typeof el.imageUrl !== 'string' || el.imageUrl.trim() === '')) {
+      errors.push(`${p}.imageUrl is required for type "${el.type}"`);
+    }
+    if (el.type === 'text' && (typeof el.text !== 'string' || el.text.trim() === '')) {
+      errors.push(`${p}.text is required for type "text"`);
+    }
+    if (el.fontSize !== undefined && (!isFiniteNum(el.fontSize) || el.fontSize < FONT_SIZE_MIN || el.fontSize > FONT_SIZE_MAX_TEXT)) {
+      errors.push(`${p}.fontSize must be a number between ${FONT_SIZE_MIN} and ${FONT_SIZE_MAX_TEXT}`);
+    }
+    if (el.color !== undefined && !HEX_OR_CSS_COLOR.test(String(el.color).trim())) {
+      errors.push(`${p}.color must be a valid color`);
+    }
+  });
   return errors;
 }
 
@@ -306,6 +382,12 @@ async function replaceLayout(prisma, screenId, input) {
     throw new ZoneValidationError(bgErrors.join('; '));
   }
 
+  // Free-floating decorative elements layer (additive JSON in settings)
+  const elErrors = validateElementsConfig(input.settings?.elements);
+  if (elErrors.length > 0) {
+    throw new ZoneValidationError(elErrors.join('; '));
+  }
+
   // Optional theme binding (T7.1): validate before touching the DB
   let themeIdValue;
   if (input.themeId !== undefined) {
@@ -324,12 +406,13 @@ async function replaceLayout(prisma, screenId, input) {
 
   return prisma.$transaction(async (tx) => {
     let layout = await tx.screenLayout.findUnique({ where: { screenId } });
+    const mergedSettings = mergeSettings(layout ? layout.settings : undefined, input.settings);
     if (!layout) {
       layout = await tx.screenLayout.create({
         data: {
           screenId,
           name: input.name || 'Nouveau layout',
-          settings: serializeJson(input.settings, '{}'),
+          settings: serializeJson(mergedSettings, '{}'),
           status: 'draft',
           ...(themeIdValue !== undefined ? { themeId: themeIdValue } : {}),
         },
@@ -339,7 +422,7 @@ async function replaceLayout(prisma, screenId, input) {
         where: { id: layout.id },
         data: {
           name: input.name ?? layout.name,
-          settings: serializeJson(input.settings, layout.settings),
+          settings: serializeJson(mergedSettings, '{}'),
           status: 'draft', // any edit returns the layout to draft until re-published
           ...(themeIdValue !== undefined ? { themeId: themeIdValue } : {}),
         },
@@ -465,6 +548,7 @@ module.exports = {
   validateBadgeConfig,
   validateBackgroundStyle,
   validateBackgroundConfig,
+  validateElementsConfig,
   zonesOverlap,
   findOverlap,
   parseZone,

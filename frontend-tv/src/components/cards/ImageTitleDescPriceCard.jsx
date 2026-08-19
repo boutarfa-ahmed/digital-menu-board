@@ -12,9 +12,9 @@ const SIZE_MAP = {
   lg: { img: 11, title: 1.5, desc: 1 },
 }
 
-// Cartes agrandies pour le template "image-details" (image +50px au total,
+// Cartes agrandies pour le template "image-details" (image +70px au total,
 // texte +10px au total, prix +5px au-dessus du format md standard).
-const IMG_BOOST_REM = 50 / 16
+const IMG_BOOST_REM = 70 / 16
 const TEXT_BOOST_REM = 10 / 16
 const PRICE_SCALE = 1.17
 
