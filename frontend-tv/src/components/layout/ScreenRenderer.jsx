@@ -5,8 +5,16 @@
 // pixel-perfect across TVs with slightly different resolutions.
 import { useEffect, useState } from 'react'
 import Background from '../ui/Background.jsx'
+import ZoneSeams from '../ui/ZoneSeams.jsx'
+import FreeElementsLayer from './FreeElementsLayer.jsx'
 import { themeToCssVars } from '../../theme/designTokens'
 import ZoneRenderer from '../zones/ZoneRenderer.jsx'
+
+// Stacking contract within the design canvas:
+//   Background / torn seam dividers  -> z-index auto (bottom)
+//   zones                             -> z-index 20 (baseline)
+//   free-floating elements            -> element's own zIndex (default 10),
+//                                        so <20 sits behind zones, >=20 in front
 
 const DESIGN_W = 1920
 const DESIGN_H = 1080
@@ -39,8 +47,9 @@ export default function ScreenRenderer({ layout }) {
         }}
       >
         {/* theme tokens scoped to the design canvas */}
-        <div className="absolute inset-0" style={themeToCssVars(layout?.theme)}>
+        <div className="absolute inset-0" style={{ ...themeToCssVars(layout?.theme) }}>
           <Background config={layout?.settings?.background} />
+          <FreeElementsLayer elements={layout?.settings?.elements} />
           {zones.map((zone) => (
             <div
               key={zone.id}
@@ -50,11 +59,20 @@ export default function ScreenRenderer({ layout }) {
                 top: `${(zone.y / GRID) * 100}%`,
                 width: `${(zone.w / GRID) * 100}%`,
                 height: `${(zone.h / GRID) * 100}%`,
+                zIndex: 20,
               }}
             >
               <ZoneRenderer zone={zone} theme={layout?.theme} settings={layout?.settings} />
             </div>
           ))}
+          {layout?.settings?.background?.pattern === 'torn-paper' && (
+            <ZoneSeams
+              zones={zones}
+              patternColor={layout.settings.background.patternColor || '#FFFFFF'}
+              seamsEnabled={layout.settings.background.seamsEnabled}
+              hiddenSeams={layout.settings.background.hiddenSeams}
+            />
+          )}
         </div>
       </div>
     </div>

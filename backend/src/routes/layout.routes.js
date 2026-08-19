@@ -12,6 +12,25 @@ const {
   zoneDataFromBody,
   setLayoutDraft,
 } = require('../services/zone.service');
+const { broadcast } = require('../services/broadcast');
+
+async function screenIdOfZone(zoneId) {
+  const zone = await prisma.zone.findUnique({ where: { id: zoneId }, select: { layoutId: true } });
+  if (!zone) return null;
+  const layout = await prisma.screenLayout.findUnique({ where: { id: zone.layoutId }, select: { screenId: true } });
+  return layout ? layout.screenId : null;
+}
+
+async function screenIdOfLayout(layoutId) {
+  const layout = await prisma.screenLayout.findUnique({ where: { id: layoutId }, select: { screenId: true } });
+  return layout ? layout.screenId : null;
+}
+
+function emitLayoutUpdated(screenId) {
+  if (screenId != null) {
+    broadcast({ type: 'layout:updated', screenId, timestamp: Date.now() });
+  }
+}
 
 // POST /api/layouts/:id/zones — add a zone to a layout
 router.post('/layouts/:id/zones', auth, requireRole('admin'), async (req, res) => {
@@ -41,6 +60,7 @@ router.post('/layouts/:id/zones', auth, requireRole('admin'), async (req, res) =
       data: { layoutId, ...zoneDataFromBody(req.body) },
     });
     await setLayoutDraft(prisma, layoutId);
+    emitLayoutUpdated(await screenIdOfLayout(layoutId));
     res.status(201).json(parseZone(zone));
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -83,6 +103,7 @@ router.put('/zones/:id', auth, requireRole('admin'), async (req, res) => {
 
     const updated = await prisma.zone.update({ where: { id }, data });
     await setLayoutDraft(prisma, zone.layoutId);
+    emitLayoutUpdated(await screenIdOfLayout(zone.layoutId));
     res.json(parseZone(updated));
   } catch (err) {
     if (err.code === 'P2025') return res.status(404).json({ error: 'Zone not found' });
@@ -98,6 +119,7 @@ router.delete('/zones/:id', auth, requireRole('admin'), async (req, res) => {
     if (!zone) return res.status(404).json({ error: 'Zone not found' });
     await prisma.zone.delete({ where: { id } });
     await setLayoutDraft(prisma, zone.layoutId);
+    emitLayoutUpdated(await screenIdOfLayout(zone.layoutId));
     res.status(204).end();
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -131,12 +153,14 @@ router.put('/zones/:id/items', auth, requireRole('admin'), async (req, res) => {
             col: it.col ?? null,
             index: it.index ?? i,
             order: it.order ?? i,
+            qty: it.qty !== undefined ? Number(it.qty) || null : null,
           })),
         })
       );
     }
     await prisma.$transaction(ops);
     await setLayoutDraft(prisma, zone.layoutId);
+    emitLayoutUpdated(await screenIdOfLayout(zone.layoutId));
 
     const updated = await prisma.zone.findUnique({
       where: { id },

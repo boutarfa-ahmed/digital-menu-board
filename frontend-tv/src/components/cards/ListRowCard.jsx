@@ -2,6 +2,7 @@ import { cardFields, templateStyle } from './cardUtils.js'
 import CardBadge from './CardBadge.jsx'
 import ImageFallback from './ImageFallback.jsx'
 import PriceBadge from '../primitives/PriceBadge.jsx'
+import QtyBadge from '../primitives/QtyBadge.jsx'
 import { badgeStyleOf } from '../../theme/designTokens'
 
 // list-row-price-qty template: thumbnail — name — qty badge — right-aligned
@@ -26,13 +27,20 @@ export default function ListRowCard({
       style={{ paddingTop: py, paddingBottom: py }}
     >
       <div
-        className={`shrink-0 overflow-hidden rounded-lg bg-menu-badge ${ts.minimal ? '' : 'shadow-menu-badge'}`}
+        className="relative flex shrink-0 items-center justify-center"
         style={{ width: imgSize, height: imgSize }}
       >
         {imageUrl ? (
-          <img src={imageUrl} alt={name} className="h-full w-full object-cover" />
+          <img
+            src={imageUrl}
+            alt={name}
+            className="h-full w-full object-contain"
+            style={{ filter: 'drop-shadow(0 6px 8px rgba(0,0,0,0.3))' }}
+          />
         ) : (
-          <ImageFallback label={name} />
+          <div className="flex h-full w-full items-center justify-center overflow-hidden rounded-lg bg-menu-badge">
+            <ImageFallback label={name} />
+          </div>
         )}
       </div>
       <span
@@ -41,11 +49,7 @@ export default function ListRowCard({
       >
         {name}
       </span>
-      {qtyLabel ? (
-        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-menu-accent text-xs font-bold text-white">
-          {qtyLabel}
-        </span>
-      ) : null}
+      {qtyLabel != null ? <QtyBadge qty={qtyLabel} size="sm" /> : null}
       {showPrice && price != null ? (
         <div className="shrink-0">
           <PriceBadge price={price} size="sm" badgeStyle={badgeStyleOf(theme)} />
