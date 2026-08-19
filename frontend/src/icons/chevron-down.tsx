@@ -1,0 +1,17 @@
+import type { SVGProps } from "react";
+
+const ChevronDownIcon = ({ className = "", ...props }: SVGProps<SVGSVGElement>) => (
+  <svg
+    width="20"
+    height="20"
+    viewBox="0 0 20 20"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    className={className}
+    {...props}
+  >
+    <path d="M4.79175 7.396L10.0001 12.6043L15.2084 7.396" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+  </svg>
+);
+
+export default ChevronDownIcon;

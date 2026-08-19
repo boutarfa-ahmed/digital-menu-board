@@ -3,6 +3,7 @@ const router = express.Router();
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 const auth = require('../middleware/authMiddleware');
+const requireRole = require('../middleware/requireRole');
 
 // GET /api/categories  OR  GET /api/categories?id=1
 router.get('/', async (req, res) => {
@@ -18,6 +19,7 @@ router.get('/', async (req, res) => {
     }
     const categories = await prisma.category.findMany({
       include: { items: true },
+      orderBy: [{ order: 'asc' }, { id: 'asc' }],
     });
     res.json(categories);
   } catch (err) {
@@ -40,8 +42,8 @@ router.get('/:id', async (req, res) => {
 });
 
 // POST /api/categories (protected)
-router.post('/', auth, async (req, res) => {
-  const { name } = req.body;
+router.post('/', auth, requireRole('admin'), async (req, res) => {
+  const { name, order, icon, color } = req.body;
 
   if (!name || typeof name !== 'string' || name.trim().length === 0) {
     return res.status(400).json({ error: 'Name is required and must be a non-empty string' });
@@ -49,7 +51,12 @@ router.post('/', auth, async (req, res) => {
 
   try {
     const newCat = await prisma.category.create({
-      data: { name: name.trim() },
+      data: {
+        name: name.trim(),
+        order: order !== undefined ? parseInt(order) : 0,
+        icon: icon || null,
+        color: color || null,
+      },
     });
     res.status(201).json(newCat);
   } catch (err) {
@@ -60,19 +67,54 @@ router.post('/', auth, async (req, res) => {
   }
 });
 
+// PUT /api/categories/reorder (protected) — batch update display order
+router.put('/reorder', auth, requireRole('admin'), async (req, res) => {
+  const { ids } = req.body;
+
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return res.status(400).json({ error: 'ids array is required' });
+  }
+
+  try {
+    await prisma.$transaction(
+      ids.map((id, index) =>
+        prisma.category.update({
+          where: { id: parseInt(id) },
+          data: { order: index + 1 },
+        })
+      )
+    );
+    const categories = await prisma.category.findMany({
+      include: { items: true },
+      orderBy: [{ order: 'asc' }, { id: 'asc' }],
+    });
+    res.json(categories);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // PUT /api/categories/:id (protected)
-router.put('/:id', auth, async (req, res) => {
-  const { name } = req.body;
+router.put('/:id', auth, requireRole('admin'), async (req, res) => {
+  const { name, order, icon, color } = req.body;
   const id = parseInt(req.params.id);
 
-  if (!name || typeof name !== 'string' || name.trim().length === 0) {
-    return res.status(400).json({ error: 'Name is required and must be a non-empty string' });
+  if (name !== undefined && (typeof name !== 'string' || name.trim().length === 0)) {
+    return res.status(400).json({ error: 'Name must be a non-empty string' });
+  }
+  if (order !== undefined && (typeof order !== 'number' || Number.isNaN(order))) {
+    return res.status(400).json({ error: 'Order must be a number' });
   }
 
   try {
     const updated = await prisma.category.update({
       where: { id },
-      data: { name: name.trim() },
+      data: {
+        name: name !== undefined ? name.trim() : undefined,
+        order: order !== undefined ? order : undefined,
+        icon: icon !== undefined ? icon : undefined,
+        color: color !== undefined ? color : undefined,
+      },
     });
     res.json(updated);
   } catch (err) {
@@ -87,7 +129,7 @@ router.put('/:id', auth, async (req, res) => {
 });
 
 // DELETE /api/categories/:id (protected)
-router.delete('/:id', auth, async (req, res) => {
+router.delete('/:id', auth, requireRole('admin'), async (req, res) => {
   const id = parseInt(req.params.id);
   try {
     const category = await prisma.category.findUnique({ where: { id } });

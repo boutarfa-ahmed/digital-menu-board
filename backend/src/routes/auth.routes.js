@@ -1,11 +1,14 @@
 const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcrypt');
-const jwt = require('jsonwebtoken');
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
-
-const JWT_SECRET = process.env.JWT_SECRET || 'galaxyfood_secret_key';
+const {
+  signAccessToken,
+  signRefreshToken,
+  saveRefreshToken,
+  rotateRefreshToken,
+} = require('../services/token.service');
 
 // POST /api/auth/register
 router.post('/register', async (req, res) => {
@@ -36,15 +39,13 @@ router.post('/register', async (req, res) => {
         name: name.trim(),
         email: email.trim().toLowerCase(),
         password: hashedPassword,
-        role: role === 'owner' ? 'owner' : 'admin',
+        role: role === 'staff' ? 'staff' : 'admin',
       },
     });
 
-    const token = jwt.sign(
-      { id: user.id, email: user.email, role: user.role },
-      JWT_SECRET,
-      { expiresIn: '7d' }
-    );
+    const accessToken = signAccessToken(user);
+    const refreshToken = signRefreshToken(user);
+    await saveRefreshToken(user.id, refreshToken);
 
     res.status(201).json({
       user: {
@@ -53,7 +54,8 @@ router.post('/register', async (req, res) => {
         email: user.email,
         role: user.role,
       },
-      token,
+      token: accessToken,
+      refreshToken,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -84,11 +86,9 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
-    const token = jwt.sign(
-      { id: user.id, email: user.email, role: user.role },
-      JWT_SECRET,
-      { expiresIn: '7d' }
-    );
+    const accessToken = signAccessToken(user);
+    const refreshToken = signRefreshToken(user);
+    await saveRefreshToken(user.id, refreshToken);
 
     res.json({
       user: {
@@ -97,10 +97,27 @@ router.post('/login', async (req, res) => {
         email: user.email,
         role: user.role,
       },
-      token,
+      token: accessToken,
+      refreshToken,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/auth/refresh
+router.post('/refresh', async (req, res) => {
+  const { refreshToken } = req.body;
+
+  if (!refreshToken || typeof refreshToken !== 'string') {
+    return res.status(400).json({ error: 'refreshToken is required' });
+  }
+
+  try {
+    const result = await rotateRefreshToken(refreshToken);
+    res.json(result);
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
   }
 });
 
