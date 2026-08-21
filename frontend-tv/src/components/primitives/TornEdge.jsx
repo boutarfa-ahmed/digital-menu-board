@@ -13,52 +13,102 @@ function mulberry32(seed) {
 // Full-box clip-path for an ENTIRE zone (not a thin strip): 3 straight edges,
 // ONE torn/jagged edge. `depth` = how deep the teeth cut in, as a % of the
 // box's own width/height. Same deterministic mulberry32 seeding as the band above.
+//
+// Organic-torn tuning knobs (tweak these before touching the algorithm):
+// - WIDTH_VARIANCE 0.6-1.5: each tooth's span is a random 60%-150% of the
+//   average width; positions are accumulated then normalized so the tear
+//   still spans the full 0-100% edge (uneven spacing, not machine-cut).
+// - RIP_CHANCE 0.2 / RIP_MULT 1.4-1.8: ~20% of teeth tear 1.4x-1.8x deeper
+//   than the shallow-biased norm — spots where the paper ripped further.
+// - TIP_JITTER: each vertex shifts off its segment grid point by up to ±35%
+//   of the local tooth width (hard-capped ±2.5% of the edge), so peaks never
+//   align to a regular rhythm; clamped against both neighbours so the
+//   polygon can never fold over itself.
+// - Midpoints: one extra vertex per tooth takes the blend of its neighbours'
+//   depths ±25% noise, breaking up straight chords for a slight curve feel.
 export function tornZoneClipPath(edge, seedKey, jaggedness = 5, depth = 6) {
   const rand = mulberry32(String(seedKey).split('').reduce((a, c) => a + c.charCodeAt(0), 0))
   const teeth = 8 + Math.round(jaggedness * 1.6)
+  const RIP_CHANCE = 0.2
+  const MIN_GAP = 0.3
+
+  // Uneven tooth spacing: randomized segment widths, normalized back to 0-100%.
+  const widths = []
+  let total = 0
+  for (let i = 0; i < teeth; i++) {
+    const w = 0.6 + rand() * 0.9
+    widths.push(w)
+    total += w
+  }
+  const xs = [0]
+  let acc = 0
+  for (let i = 0; i < teeth; i++) {
+    acc += widths[i]
+    xs.push((acc / total) * 100)
+  }
+
   const pts = []
   for (let i = 0; i <= teeth; i++) {
-    const t = i / teeth
-    const jitter = (rand() - 0.5) * 2.5
-    const d = Math.pow(rand(), 1.5) * depth
-    pts.push([t * 100 + jitter, d])
+    // Tip jitter scales with the local tooth width and stays inside both
+    // neighbouring grid points (endpoints stay pinned at 0% / 100%).
+    const cell = Math.min(
+      i === 0 ? Infinity : xs[i] - xs[i - 1],
+      i === teeth ? Infinity : xs[i + 1] - xs[i]
+    )
+    const jitMax = Math.min(2.5, cell * 0.35)
+    const x = i === 0 || i === teeth ? xs[i] : xs[i] + (rand() - 0.5) * 2 * jitMax
+    let d = Math.pow(rand(), 1.5) * depth
+    if (rand() < RIP_CHANCE) d *= 1.4 + rand() * 0.4
+    pts.push([x, d])
+  }
+  // Midpoints soften the straight chords between vertices into a subtle curve.
+  const dense = []
+  for (let i = 0; i < pts.length; i++) {
+    dense.push(pts[i])
+    if (i === pts.length - 1) break
+    const [x0, d0] = pts[i]
+    const [x1, d1] = pts[i + 1]
+    const mx = Math.max(x0 + MIN_GAP, Math.min(x1 - MIN_GAP, (x0 + x1) / 2 + (rand() - 0.5) * (x1 - x0) * 0.2))
+    dense.push([mx, ((d0 + d1) / 2) * (0.75 + rand() * 0.5)])
   }
   const fmt = (v) => `${Math.max(0, Math.min(100, v)).toFixed(2)}%`
 
   if (edge === 'right') {
     const out = ['0% 0%', '0% 100%']
-    for (let i = pts.length - 1; i >= 0; i--) out.push(`${fmt(100 - pts[i][1])} ${fmt(pts[i][0])}`)
+    for (let i = dense.length - 1; i >= 0; i--) out.push(`${fmt(100 - dense[i][1])} ${fmt(dense[i][0])}`)
     return `polygon(${out.join(', ')})`
   }
   if (edge === 'left') {
     const out = ['100% 0%', '100% 100%']
-    for (let i = pts.length - 1; i >= 0; i--) out.push(`${fmt(pts[i][1])} ${fmt(pts[i][0])}`)
+    for (let i = dense.length - 1; i >= 0; i--) out.push(`${fmt(dense[i][1])} ${fmt(dense[i][0])}`)
     return `polygon(${out.join(', ')})`
   }
   if (edge === 'bottom') {
     const out = ['0% 0%', '100% 0%']
-    for (let i = pts.length - 1; i >= 0; i--) out.push(`${fmt(pts[i][0])} ${fmt(100 - pts[i][1])}`)
+    for (let i = dense.length - 1; i >= 0; i--) out.push(`${fmt(dense[i][0])} ${fmt(100 - dense[i][1])}`)
     return `polygon(${out.join(', ')})`
   }
   const out = ['0% 100%', '100% 100%']
-  for (let i = pts.length - 1; i >= 0; i--) out.push(`${fmt(pts[i][0])} ${fmt(pts[i][1])}`)
+  for (let i = dense.length - 1; i >= 0; i--) out.push(`${fmt(dense[i][0])} ${fmt(dense[i][1])}`)
   return `polygon(${out.join(', ')})`
 }
 
 // Hand-drawn "hash" strokes for the band: overlapping diagonal lines in both
-// directions (#-marks) at irregular spacing (~5px, some 7px / 8px) so the
-// pattern reads as many small gradients going up and down, not a perfect grid.
+// directions (#-marks) at irregular spacing (~5px, some 7px / 8px, each layer
+// wandering ±15% around its base period) with varied stroke weights (26%-42%
+// ink coverage per layer) so the pattern reads as many small gradients going
+// up and down, not a perfect grid.
 function hatchCss(fillColor, jaggedness) {
   const rand = mulberry32(Math.round(fillColor.split('').reduce((a, c) => a + c.charCodeAt(0), 0)))
   const stroke = 'rgba(0,0,0,0.32)'
   const layers = []
   const periods = [5, 6, 8]
   for (let i = 0; i < 4; i++) {
-    const period = periods[i % periods.length] + (rand() - 0.5) * 0.8
-    const jitter = (rand() - 0.5) * Math.min(2, jaggedness)
-    const start = Math.max(0.5, period * 0.7 + jitter)
+    const period = (periods[i % periods.length] + (rand() - 0.5) * 0.8) * (0.85 + rand() * 0.3)
+    const strokeFrac = 0.26 + rand() * 0.16
+    const start = Math.max(0.5, period * (1 - strokeFrac) + (rand() - 0.5) * Math.min(2, jaggedness))
     for (const dir of ['45deg', '-45deg']) {
-      layers.push(`repeating-linear-gradient(${dir}, transparent 0 ${start.toFixed(2)}px, ${stroke} ${start.toFixed(2)}px ${start.toFixed(2) + period}px)`)
+      layers.push(`repeating-linear-gradient(${dir}, transparent 0 ${start.toFixed(2)}px, ${stroke} ${start.toFixed(2)}px ${period.toFixed(2)}px)`)
     }
   }
   return layers.join(',')
