@@ -19,6 +19,7 @@ const DEFAULT_THEME = {
     body: "'Inter', 'Poppins', sans-serif",
   },
   badgeStyle: 'torn-paper',
+  currency: 'CHF',
 };
 
 function parseJson(value, fallback = null) {
@@ -46,6 +47,10 @@ function parseTheme(theme) {
     fonts: parseJson(theme.fonts, {}),
   };
 }
+
+// Short symbol/code printed after the price. Kept permissive (CHF, €, DT, $)
+// but bounded, so a theme cannot inject a paragraph into every price badge.
+const CURRENCY_MAX_LENGTH = 4;
 
 const HEX_OR_CSS_COLOR = /^(#[0-9a-fA-F]{3,8}|rgba?\([^)]+\)|hsla?\([^)]+\)|[a-zA-Z]+)$/;
 
@@ -83,6 +88,13 @@ function validateThemeInput(body) {
   if (b.isDefault !== undefined && typeof b.isDefault !== 'boolean') {
     errors.push('isDefault must be a boolean');
   }
+  if (b.currency !== undefined) {
+    if (typeof b.currency !== 'string' || b.currency.trim().length === 0) {
+      errors.push('currency must be a non-empty string');
+    } else if (b.currency.trim().length > CURRENCY_MAX_LENGTH) {
+      errors.push(`currency must be at most ${CURRENCY_MAX_LENGTH} characters`);
+    }
+  }
   return errors;
 }
 
@@ -94,6 +106,7 @@ function themeDataFromBody(body) {
   if (b.colors !== undefined) data.colors = serializeJson(b.colors, '{}');
   if (b.fonts !== undefined) data.fonts = serializeJson(b.fonts, '{}');
   if (b.badgeStyle !== undefined) data.badgeStyle = b.badgeStyle;
+  if (b.currency !== undefined) data.currency = b.currency.trim();
   return data;
 }
 

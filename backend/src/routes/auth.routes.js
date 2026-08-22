@@ -1,8 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcrypt');
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
+const prisma = require('../db');
+const auth = require('../middleware/authMiddleware');
 const {
   signAccessToken,
   signRefreshToken,
@@ -10,9 +10,27 @@ const {
   rotateRefreshToken,
 } = require('../services/token.service');
 
-// POST /api/auth/register
-router.post('/register', async (req, res) => {
+// POST /api/auth/register — admin-only.
+//
+// This used to be public AND defaulted every new account to role 'admin', so
+// anyone who could reach the API could mint themselves an admin. It is now
+// behind an admin token, with one exception: while the User table is empty the
+// very first account may be created unauthenticated (bootstrap), because there
+// is no admin yet to authorize it.
+async function registerGuard(req, res, next) {
+  const userCount = await prisma.user.count();
+  if (userCount === 0) return next(); // bootstrap: first ever account
+  return auth(req, res, () => {
+    if (req.user?.role !== 'admin') {
+      return res.status(403).json({ error: 'Access denied. Insufficient permissions.' });
+    }
+    next();
+  });
+}
+
+router.post('/register', registerGuard, async (req, res) => {
   const { name, email, password, role } = req.body;
+  const isBootstrap = !req.user;
 
   if (!name || typeof name !== 'string' || name.trim().length === 0) {
     return res.status(400).json({ error: 'Name is required' });
@@ -39,7 +57,10 @@ router.post('/register', async (req, res) => {
         name: name.trim(),
         email: email.trim().toLowerCase(),
         password: hashedPassword,
-        role: role === 'staff' ? 'staff' : 'admin',
+        // Least privilege: 'staff' unless an admin explicitly asks for 'admin'.
+        // The bootstrap account is the exception — it must be an admin, or
+        // nobody could ever create the second account.
+        role: isBootstrap ? 'admin' : role === 'admin' ? 'admin' : 'staff',
       },
     });
 

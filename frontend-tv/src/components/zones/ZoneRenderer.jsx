@@ -11,7 +11,7 @@ import ZoneBadge from '../ui/ZoneBadge.jsx'
 import { accentOf, cardFields, templateStyle } from '../cards/cardUtils.js'
 import PriceBadge from '../primitives/PriceBadge.jsx'
 import TierPricingHeader from '../primitives/TierPricingHeader.jsx'
-import { badgeStyleOf } from '../../theme/designTokens'
+import { badgeStyleOf, currencyOf } from '../../theme/designTokens'
 
 function bannerSizeOf(fontSize) {
   if (!fontSize) return undefined
@@ -40,7 +40,7 @@ function ZoneTitle({ name, accent, banner, extraPrice, theme, fontSize }) {
   return (
     <div className="mb-6 flex items-center gap-3">
       {title}
-      <PriceBadge price={extraPrice} size="sm" badgeStyle={badgeStyleOf(theme)} />
+      <PriceBadge price={extraPrice} size="sm" badgeStyle={badgeStyleOf(theme)} currency={currencyOf(theme)} />
     </div>
   )
 }
@@ -183,6 +183,7 @@ function BannerContent({ zone, theme, settings, accent, fontSize }) {
         <TierPricingHeader
           tiers={zone.badgeConfig.tiers}
           badgeStyle={badgeStyleOf(theme)}
+          currency={currencyOf(theme)}
         />
       </div>
     )

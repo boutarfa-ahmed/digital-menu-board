@@ -750,7 +750,8 @@ function ScreenLayoutCanvas() {
     setUndoZone(null)
     Promise.all([
       api.get(`/screens/${id}`).then((r) => r.data),
-      api.get(`/screens/${id}/layout`).then((r) => r.data),
+      // preview=1: the builder edits the draft; the TV endpoint serves published only
+      api.get(`/screens/${id}/layout?preview=1`).then((r) => r.data),
       api.get('/categories').then((r) => r.data),
       api.get('/menu').then((r) => r.data),
     ])

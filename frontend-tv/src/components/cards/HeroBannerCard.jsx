@@ -1,7 +1,7 @@
 import { cardFields, templateStyle } from './cardUtils.js'
 import CardBadge from './CardBadge.jsx'
 import PriceBadge from '../primitives/PriceBadge.jsx'
-import { badgeStyleOf } from '../../theme/designTokens'
+import { badgeStyleOf, currencyOf } from '../../theme/designTokens'
 
 // hero-banner template: full-bleed image, gradient overlay for legibility,
 // big title + stamped price tag bottom corner. Without an image it falls back
@@ -40,7 +40,7 @@ export default function HeroBannerCard({ item, theme, badgeConfig, showPrice = t
       ) : null}
       {showPrice && price != null ? (
         <div className="absolute bottom-6 right-6">
-          <PriceBadge price={price} size="lg" rotate badgeStyle={badgeStyleOf(theme)} />
+          <PriceBadge price={price} size="lg" rotate badgeStyle={badgeStyleOf(theme)} currency={currencyOf(theme)} />
         </div>
       ) : null}
       <CardBadge config={badgeConfig} />

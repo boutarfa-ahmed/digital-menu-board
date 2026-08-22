@@ -1,5 +1,12 @@
 const { PrismaClient } = require('@prisma/client');
+const bcrypt = require('bcrypt');
 const prisma = new PrismaClient();
+
+// Seed admin. The seed never created a user, so the only way to get an account
+// was the (then public) register endpoint — which is exactly why it was open.
+// Register is admin-only now, so the admin has to come from here.
+const SEED_ADMIN_EMAIL = process.env.SEED_ADMIN_EMAIL || 'ahmed@galaxy.com';
+const SEED_ADMIN_PASSWORD = process.env.SEED_ADMIN_PASSWORD || 'changeme123';
 
 async function main() {
   // Clear existing data
@@ -26,6 +33,7 @@ async function main() {
         body: "'Inter', 'Poppins', sans-serif",
       }),
       badgeStyle: 'torn-paper',
+      currency: 'CHF',
     },
   });
 
@@ -211,6 +219,19 @@ async function main() {
     });
   }
 
+  // upsert: re-seeding must not orphan the account you are logged in with
+  const admin = await prisma.user.upsert({
+    where: { email: SEED_ADMIN_EMAIL },
+    update: {},
+    create: {
+      name: 'Ahmed',
+      email: SEED_ADMIN_EMAIL,
+      password: await bcrypt.hash(SEED_ADMIN_PASSWORD, 10),
+      role: 'admin',
+    },
+  });
+
+  console.log('Admin: ' + admin.email + ' (password from SEED_ADMIN_PASSWORD, default "changeme123")');
   console.log(
     'Seed completed: 1 theme (' + defaultTheme.name + '), 5 categories, ' + items.length + ' items, ' + screens.length + ' screens, ' +
       '1 layout (' + layout.id + ') with 3 zones and 7 zone items created'

@@ -1,12 +1,12 @@
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
+const prisma = require('../db');
+const env = require('../config/env');
 
-const ACCESS_SECRET = process.env.JWT_SECRET || 'galaxyfood_secret_key';
-const REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'galaxyfood_refresh_secret_key';
-const ACCESS_EXPIRES_IN = process.env.ACCESS_TOKEN_EXPIRES_IN || '15m';
-const REFRESH_EXPIRES_IN_DAYS = parseInt(process.env.REFRESH_TOKEN_EXPIRES_IN || '30', 10);
+const ACCESS_SECRET = env.JWT_SECRET;
+const REFRESH_SECRET = env.JWT_REFRESH_SECRET;
+const ACCESS_EXPIRES_IN = env.ACCESS_TOKEN_EXPIRES_IN;
+const REFRESH_EXPIRES_IN_DAYS = env.REFRESH_TOKEN_EXPIRES_IN;
 
 function hashToken(token) {
   return crypto.createHash('sha256').update(token).digest('hex');

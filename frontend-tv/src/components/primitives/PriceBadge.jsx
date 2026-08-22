@@ -1,4 +1,4 @@
-import { BADGE_STYLES } from '../../theme/designTokens'
+import { BADGE_STYLES, DEFAULT_CURRENCY } from '../../theme/designTokens'
 
 const SIZE_STYLES = {
   sm: { pad: 'px-2.5 py-1', int: 'text-2xl' },
@@ -36,7 +36,7 @@ const VARIANT_STYLES = {
  * @param {'sm'|'md'|'lg'} [size=md] - scales padding + integer size
  * @param {number|boolean} [rotate=0] - degrees to rotate the badge (e.g. -2);
  *   `true` maps to -2deg for legacy boolean usage
- * @param {string} [currency='CHF'] - trailing currency symbol
+ * @param {string} [currency=DEFAULT_CURRENCY] - trailing currency symbol
  * @param {string} [badgeStyle] - 'torn-paper'|'rounded'|'ribbon' variant;
  *   defaults to a slightly-rounded sticker rectangle
  * @param {'dark'|'light'} [variant=dark] - badge color scheme (dark stays default)
@@ -48,7 +48,7 @@ export default function PriceBadge({
   price,
   size = 'md',
   rotate = 0,
-  currency = 'CHF',
+  currency = DEFAULT_CURRENCY,
   badgeStyle = null,
   variant,
   tone = 'black',
