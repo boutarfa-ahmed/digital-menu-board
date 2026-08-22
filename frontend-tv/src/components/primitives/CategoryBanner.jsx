@@ -1,70 +1,97 @@
-import { useMemo } from 'react'
-
-// Deterministic PRNG (same mulberry32 pattern as TornEdge) so the ribbon's
-// torn edge stays stable between renders. Kept local so this stays a single
-// self-contained component.
-function mulberry32(seed) {
-  return function () {
-    let t = (seed += 0x6d2b79f5)
-    t = Math.imul(t ^ (t >>> 15), t | 1)
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
-  }
-}
-
-// Right-edge torn cutout: straight left/top/bottom edges, a jagged right
-// edge whose teeth eat into the ribbon by up to `thickness` px.
-function ribbonClip(seedKey, thickness) {
-  const rand = mulberry32(
-    String(seedKey).split('').reduce((a, c) => a + c.charCodeAt(0), 0)
-  )
-  const teeth = 5 + Math.round(thickness / 3)
-  const pts = []
-  for (let i = 0; i <= teeth; i++) {
-    const t = i / teeth
-    const d = Math.pow(rand(), 1.5) * thickness
-    pts.push(`${Math.max(0, Math.min(100, t * 100)).toFixed(2)}% ${d.toFixed(2)}px`)
-  }
-  const path = ['0% 0%', '0% 100%', ...pts.map((p) => `calc(100% - ${p.split(' ')[1]}) ${p.split(' ')[0]}`)]
-  return `polygon(${path.join(', ')})`
-}
+import { tornZoneClipPath } from './TornEdge.jsx'
 
 const SIZES = {
-  sm: { pad: 'px-4 py-1', font: 15, divider: 2, torn: 10 },
-  md: { pad: 'px-6 py-1.5', font: 18, divider: 2, torn: 12 },
-  lg: { pad: 'px-8 py-2', font: 22, divider: 3, torn: 14 },
+  sm: { pad: 'px-4 py-0.5', font: 14, overlap: -4 },
+  md: { pad: 'px-5 py-1', font: 18, overlap: -5 },
+  lg: { pad: 'px-6 py-1.5', font: 22, overlap: -6 },
 }
 
 /**
- * CategoryBanner — section header: a torn-edge ribbon label followed by a
- * horizontal divider line filling the remaining width (Meat/Sauces/Extra
- * style). Ribbon background defaults to `var(--menu-accent)` so it follows
- * the zone's theme accent automatically.
- * @param {string} label - section title text (e.g. "Meat", "Sauces")
- * @param {string} [accent='var(--menu-accent)'] - ribbon + divider color
- * @param {string} [textColor='#FFFFFF'] - ribbon label text color
- * @param {'sm'|'md'|'lg'} [size='md'] - ribbon height / font / divider
- * @param {string} [className] - extra classes for the outer wrapper
+ * CategoryBanner — torn-paper two-stack badge (OUR / EXTRAS style).
+ * Top band: light paper background, dark text (first label line).
+ * Bottom band: accent background, white text (second label line), slightly
+ * overlapping the top band. Each band has a torn bottom edge (tornZoneClipPath,
+ * deterministic per band) and the whole badge is rotated -3deg with a soft
+ * drop shadow. Intrinsic width — no divider line.
+ * @param {string} label - section title (e.g. "OUR EXTRAS" -> "OUR" / "EXTRAS").
+ *   If no space, only the bottom (accent) band is rendered.
+ * @param {[string,string]} [lines] - explicit [top, bottom] override.
+ * @param {string} [accent='var(--menu-accent)'] - bottom band background.
+ * @param {string} [topBg='#F5F3EF'] - top band background (paper).
+ * @param {string} [topTextColor='#1A1A1A'] - top band text color.
+ * @param {string} [bottomTextColor='#FFFFFF'] - bottom band text color.
+ * @param {string} [textColor] - legacy alias for bottomTextColor.
+ * @param {'sm'|'md'|'lg'} [size='md'] - font / padding / overlap scale.
+ * @param {number} [fontSize] - explicit pixel size; overrides the `size` font
+ *   so the badge grows past the sm/md/lg presets (used by free elements).
+ * @param {string} [className] - extra classes for the outer wrapper.
  */
 export default function CategoryBanner({
   label,
+  lines,
   accent = 'var(--menu-accent)',
-  textColor = '#FFFFFF',
+  topBg = '#F5F3EF',
+  topTextColor = '#1A1A1A',
+  bottomTextColor,
+  textColor,
   size = 'md',
+  fontSize,
   className,
 }) {
   const s = SIZES[size] || SIZES.md
-  const clip = useMemo(() => ribbonClip(label || 'banner', s.torn), [label, s.torn])
+  const font = fontSize ? Math.max(6, fontSize) : s.font
+  const resolvedBottom = bottomTextColor !== undefined ? bottomTextColor : textColor !== undefined ? textColor : '#FFFFFF'
+
+  let topLine = null
+  let bottomLine = label || ''
+
+  if (Array.isArray(lines) && lines.length >= 2) {
+    topLine = lines[0]
+    bottomLine = lines[1]
+  } else if (typeof label === 'string') {
+    const sp = label.indexOf(' ')
+    if (sp !== -1) {
+      topLine = label.slice(0, sp).trim()
+      bottomLine = label.slice(sp + 1).trim() || label.slice(0, sp).trim()
+    }
+  }
+
+  const seedBase = String(label || 'banner')
+  const bandCls = `font-menu-header font-bold uppercase tracking-wide leading-none text-center ${s.pad}`
 
   return (
-    <div className={`flex w-full items-center gap-4 ${className}`}>
-      <div
-        className={`shrink-0 font-menu-header font-bold uppercase tracking-wide ${s.pad}`}
-        style={{ backgroundColor: accent, color: textColor, fontSize: s.font, lineHeight: 1.2, clipPath: clip }}
-      >
-        {label}
+    <div className={`inline-block ${className || ''}`} style={{ transform: 'rotate(-3deg)' }}>
+      <div className="flex flex-col items-center" style={{ filter: 'drop-shadow(0 6px 10px rgba(0,0,0,0.35))' }}>
+        {topLine ? (
+          <div
+            className={bandCls}
+            style={{
+              position: 'relative',
+              zIndex: 1,
+              background: topBg,
+              color: topTextColor,
+              fontSize: font,
+              clipPath: tornZoneClipPath('bottom', `${seedBase}-top`, 6, 8),
+            }}
+          >
+            {topLine}
+          </div>
+        ) : null}
+        <div
+          className={bandCls}
+          style={{
+            position: 'relative',
+            zIndex: 2,
+            background: accent,
+            color: resolvedBottom,
+            fontSize: font,
+            marginTop: topLine ? s.overlap : 0,
+            clipPath: tornZoneClipPath('bottom', `${seedBase}-bottom`, 6, 10),
+          }}
+        >
+          {bottomLine}
+        </div>
       </div>
-      <div className="min-w-0 flex-1" style={{ height: s.divider, backgroundColor: accent, opacity: 0.55 }} />
     </div>
   )
 }

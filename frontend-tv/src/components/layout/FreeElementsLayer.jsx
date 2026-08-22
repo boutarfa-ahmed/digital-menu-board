@@ -4,6 +4,9 @@
 // zIndex value. Zones use a baseline zIndex of 20 (see ScreenRenderer), so an
 // element with zIndex < 20 renders behind zones and zIndex >= 20 renders in
 // front. Elements are purely decorative display — never interactive.
+import CategoryBanner from '../primitives/CategoryBanner.jsx'
+import PriceBadge from '../primitives/PriceBadge.jsx'
+
 export default function FreeElementsLayer({ elements }) {
   if (!elements || elements.length === 0) return null
 
@@ -22,12 +25,97 @@ export default function FreeElementsLayer({ elements }) {
         }
 
         if (el.type === 'text') {
+          const kind = el.kind || 'plain'
+          // Hard cap: element font size never exceeds 200px, whatever is saved.
+          const cap = (v) => (v ? Math.min(v, 200) : v)
+
+          if (kind === 'banner') {
+            const dark = el.dark !== false
+            const size = (cap(el.fontSize) || 24) >= 26 ? 'lg' : (cap(el.fontSize) || 24) <= 16 ? 'sm' : 'md'
+            return (
+              <div key={el.id} style={box}>
+                <div className="flex h-full w-full items-center">
+                  <CategoryBanner
+                    label={el.text}
+                    accent={el.accent || 'var(--menu-accent)'}
+                    size={size}
+                    fontSize={cap(el.fontSize)}
+                    topBg={dark ? '#16181C' : '#F5F3EF'}
+                    topTextColor={dark ? '#FFFFFF' : '#1A1A1A'}
+                  />
+                </div>
+              </div>
+            )
+          }
+
+          if (kind === 'price') {
+            const dark = el.dark !== false
+            return (
+              <div key={el.id} style={box}>
+                <div className="flex h-full w-full items-center justify-center">
+                  <PriceBadge
+                    price={Number(el.price) || 0}
+                    variant={dark ? 'dark' : 'light'}
+                    size={(cap(el.fontSize) || 24) >= 40 ? 'lg' : (cap(el.fontSize) || 24) <= 20 ? 'sm' : 'md'}
+                    fontSize={cap(el.fontSize)}
+                  />
+                </div>
+              </div>
+            )
+          }
+
+          if (kind === 'divider') {
+            const lineColor = el.color || '#FFFFFF'
+            const lineW = Math.max(2, Math.round((cap(el.fontSize) || 24) / 12))
+            return (
+              <div key={el.id} style={box}>
+                <div className="flex h-full w-full items-center gap-4 overflow-hidden">
+                  <span
+                    className="min-w-0 flex-1"
+                    style={{ backgroundColor: lineColor, opacity: 0.6, height: lineW }}
+                  />
+                  <span
+                    className="shrink-0 whitespace-nowrap font-menu-body italic"
+                    style={{ fontSize: cap(el.fontSize) || 24, color: lineColor, lineHeight: 1.4 }}
+                  >
+                    {el.text}
+                  </span>
+                  <span
+                    className="min-w-0 flex-1"
+                    style={{ backgroundColor: lineColor, opacity: 0.6, height: lineW }}
+                  />
+                </div>
+              </div>
+            )
+          }
+
+          if (kind === 'hero') {
+            return (
+              <div key={el.id} style={box}>
+                <div className="flex h-full w-full items-center justify-center overflow-hidden">
+                  <span
+                    className="font-menu-header font-bold uppercase tracking-wide text-center"
+                    style={{
+                      fontSize: cap(el.fontSize) || 64,
+                      color: el.color || '#FFFFFF',
+                      lineHeight: 1,
+                      textShadow: '0 4px 10px rgba(0,0,0,0.45)',
+                    }}
+                  >
+                    {el.text}
+                  </span>
+                </div>
+              </div>
+            )
+          }
+
+          // 'plain' — comportement original inchangé
           return (
             <div key={el.id} style={box}>
               <div className="flex h-full w-full items-center justify-center overflow-hidden">
                 <span
                   className="font-menu-header uppercase tracking-wide text-center"
-                  style={{ fontSize: el.fontSize || 24, color: el.color || '#FFFFFF', lineHeight: 1.1 }}
+                  style={{ fontSize: cap(el.fontSize) || 24, color: el.color || '#FFFFFF', lineHeight: 1.1 }}
                 >
                   {el.text}
                 </span>
