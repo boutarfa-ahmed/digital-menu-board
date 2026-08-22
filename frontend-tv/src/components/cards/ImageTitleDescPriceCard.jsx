@@ -2,7 +2,7 @@ import { cardFields, templateStyle } from './cardUtils.js'
 import CardBadge from './CardBadge.jsx'
 import ImageFallback from './ImageFallback.jsx'
 import PriceBadge from '../primitives/PriceBadge.jsx'
-import { badgeStyleOf } from '../../theme/designTokens'
+import { badgeStyleOf, currencyOf } from '../../theme/designTokens'
 
 // Size map (rem — relative units, scaled by zoneSize). Font sizes + image
 // box grow proportionally; outer container itself stays % / rem only.
@@ -77,7 +77,7 @@ export default function ImageTitleDescPriceCard({
         ) : null}
         {showPrice && price != null ? (
           <div className="mt-2 flex items-center" style={{ transform: `scale(${PRICE_SCALE})`, transformOrigin: mirror ? 'top right' : 'top left' }}>
-            <PriceBadge price={price} size="md" rotate badgeStyle={badgeStyleOf(theme)} />
+            <PriceBadge price={price} size="md" rotate badgeStyle={badgeStyleOf(theme)} currency={currencyOf(theme)} />
           </div>
         ) : null}
       </div>

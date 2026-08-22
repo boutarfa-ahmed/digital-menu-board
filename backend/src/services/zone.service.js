@@ -111,6 +111,7 @@ const BACKGROUND_TYPES = ['image', 'split'];
 const BACKGROUND_PATTERNS = ['none', 'torn-paper'];
 const BACKGROUND_ANGLE_MAX = 180;
 const ELEMENT_TYPES = ['image', 'text', 'logo'];
+const ELEMENT_KINDS = ['plain', 'banner', 'hero', 'divider', 'price'];
 const FONT_SIZE_MAX_TEXT = 200;
 
 // T7.6: screen-level background — split (dark/light 50-50, configurable angle)
@@ -223,8 +224,24 @@ function validateElementsConfig(elements) {
     if ((el.type === 'image' || el.type === 'logo') && (typeof el.imageUrl !== 'string' || el.imageUrl.trim() === '')) {
       errors.push(`${p}.imageUrl is required for type "${el.type}"`);
     }
-    if (el.type === 'text' && (typeof el.text !== 'string' || el.text.trim() === '')) {
+    if (el.type === 'text' && el.kind !== 'price' && (typeof el.text !== 'string' || el.text.trim() === '')) {
       errors.push(`${p}.text is required for type "text"`);
+    }
+    if (el.kind !== undefined && !ELEMENT_KINDS.includes(el.kind)) {
+      errors.push(`${p}.kind must be one of ${ELEMENT_KINDS.join(', ')}`);
+    }
+    if (el.dark !== undefined && typeof el.dark !== 'boolean') {
+      errors.push(`${p}.dark must be a boolean`);
+    }
+    if (el.accent !== undefined && !HEX_OR_CSS_COLOR.test(String(el.accent).trim())) {
+      errors.push(`${p}.accent must be a valid color`);
+    }
+    if (el.kind === 'price') {
+      if (!isFiniteNum(el.price) || el.price < 0) {
+        errors.push(`${p}.price must be a non-negative number when kind is "price"`);
+      }
+    } else if (el.price !== undefined && (!isFiniteNum(el.price) || el.price < 0)) {
+      errors.push(`${p}.price must be a non-negative number`);
     }
     if (el.fontSize !== undefined && (!isFiniteNum(el.fontSize) || el.fontSize < FONT_SIZE_MIN || el.fontSize > FONT_SIZE_MAX_TEXT)) {
       errors.push(`${p}.fontSize must be a number between ${FONT_SIZE_MIN} and ${FONT_SIZE_MAX_TEXT}`);

@@ -3,7 +3,7 @@ import CardBadge from './CardBadge.jsx'
 import ImageFallback from './ImageFallback.jsx'
 import PriceBadge from '../primitives/PriceBadge.jsx'
 import QtyBadge from '../primitives/QtyBadge.jsx'
-import { badgeStyleOf } from '../../theme/designTokens'
+import { badgeStyleOf, currencyOf } from '../../theme/designTokens'
 
 // list-row-price-qty template: thumbnail — name — qty badge — right-aligned
 // price (Extras/Desserts style).
@@ -52,7 +52,7 @@ export default function ListRowCard({
       {qtyLabel != null ? <QtyBadge qty={qtyLabel} size="sm" /> : null}
       {showPrice && price != null ? (
         <div className="shrink-0">
-          <PriceBadge price={price} size="sm" badgeStyle={badgeStyleOf(theme)} />
+          <PriceBadge price={price} size="sm" badgeStyle={badgeStyleOf(theme)} currency={currencyOf(theme)} />
         </div>
       ) : null}
       <CardBadge config={badgeConfig} />

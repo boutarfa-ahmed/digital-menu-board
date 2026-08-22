@@ -46,6 +46,16 @@ const CARD_TEMPLATE_LABELS = {
   'image-title-desc-price': 'Image + détails',
 }
 
+// T8b — free element "kind" presets pour les textes (Éléments tab)
+const ELEMENT_KINDS = ['plain', 'banner', 'hero', 'divider', 'price']
+const ELEMENT_KIND_LABELS = {
+  plain: 'Texte simple',
+  banner: 'Bannière catégorie',
+  hero: 'Titre héro',
+  divider: 'Séparateur',
+  price: 'Badge prix',
+}
+
 // T7.3 — zone badge/label config (plain JSON on the zone)
 const BADGE_STYLES = ['torn-paper', 'ribbon', 'circle-stamp']
 const BADGE_STYLE_LABELS = {
@@ -77,7 +87,7 @@ const STYLE_DEFAULTS = {
 const BG_PATTERNS = ['none', 'torn-paper']
 const BG_PATTERN_LABELS = {
   none: 'Aucun',
-  'torn-paper': 'Papier déchiré',
+  'torn-paper': 'Papier déchiré (entre zones)',
 }
 const BG_DEFAULTS = {
   type: 'image',
@@ -95,20 +105,56 @@ const PAPER_GRAIN = `url("data:image/svg+xml,${encodeURIComponent(
   "<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='matrix' values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0.9 0.9 0.9 0.55 0'/></filter><rect width='140' height='140' filter='url(#n)'/></svg>"
 )}")`
 
-// Torn paper band used along the split divider (color-injectable)
-function tornStripDataUri(color) {
-  return `url("data:image/svg+xml,${encodeURIComponent(
-    `<svg xmlns='http://www.w3.org/2000/svg' width='64' height='40'><path d='M0 8 L5 13 L10 6 L16 14 L22 5 L28 13 L34 7 L40 14 L46 6 L52 13 L57 8 L63 13 L64 13 L64 27 L58 33 L52 26 L46 34 L40 27 L34 33 L28 26 L22 34 L16 27 L10 33 L5 26 L0 31 Z' fill='${color}'/></svg>`
-  )}")`
+// Mirrors frontend-tv/src/components/ui/ZoneSeams.jsx's generator exactly
+// (same seed defaults) so the "Fond" dialog preview matches the TV render.
+function mulberry32Bg(seed) {
+  return function () {
+    let t = (seed += 0x6d2b79f5)
+    t = Math.imul(t ^ (t >>> 15), t | 1)
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+function tornEdgePointsBg(rand, length, segments, depth) {
+  const pts = []
+  for (let i = 0; i <= segments; i++) {
+    const pos = (i / segments) * length
+    let d = Math.pow(rand(), 1.6) * depth
+    if (rand() < 0.16) d += depth * (0.5 + rand() * 0.5)
+    pts.push([pos, d])
+  }
+  return pts
+}
+function tornStripDataUri(color, seed = 1, length = 64, thickness = 36) {
+  const rand = mulberry32Bg(seed)
+  const segs = 22
+  const depth = thickness * 0.34
+  const top = tornEdgePointsBg(rand, length, segs, depth)
+  const bottom = tornEdgePointsBg(rand, length, segs, depth)
+  const topPts = top.map(([x, d]) => `${x.toFixed(1)} ${d.toFixed(1)}`).join(' L')
+  const botPts = bottom
+    .map(([x, d]) => `${x.toFixed(1)} ${(thickness - d).toFixed(1)}`)
+    .reverse()
+    .join(' L')
+  const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='${length}' height='${thickness}'><filter id='ds' x='-20%' y='-60%' width='140%' height='220%'><feDropShadow dx='0' dy='2' stdDeviation='1.6' flood-color='#000000' flood-opacity='0.3'/></filter><path filter='url(#ds)' d='M${topPts} L${botPts} Z' fill='${color}'/></svg>`
+  return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`
 }
 
 const gpt = (g) => `${(g * 100) / 12}%`
 
-// Vertical torn strip (jagged left/right edges) for zone seam dividers
-function tornStripVDataUri(color) {
-  return `url("data:image/svg+xml,${encodeURIComponent(
-    `<svg xmlns='http://www.w3.org/2000/svg' width='40' height='64'><path d='M0 0 L7 6 L2 13 L9 20 L3 27 L10 34 L4 41 L11 48 L5 55 L12 61 L6 64 L34 64 L38 59 L31 52 L36 45 L30 38 L35 31 L29 24 L34 17 L28 10 L33 4 L34 0 Z' fill='${color}'/></svg>`
-  )}")`
+function tornStripVDataUri(color, seed = 2, length = 64, thickness = 36) {
+  const rand = mulberry32Bg(seed)
+  const segs = 22
+  const depth = thickness * 0.34
+  const left = tornEdgePointsBg(rand, length, segs, depth)
+  const right = tornEdgePointsBg(rand, length, segs, depth)
+  const leftPts = left.map(([y, d]) => `${d.toFixed(1)} ${y.toFixed(1)}`).join(' L')
+  const rightPts = right
+    .map(([y, d]) => `${(thickness - d).toFixed(1)} ${y.toFixed(1)}`)
+    .reverse()
+    .join(' L')
+  const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='${thickness}' height='${length}'><filter id='ds' x='-60%' y='-20%' width='220%' height='140%'><feDropShadow dx='2' dy='0' stdDeviation='1.6' flood-color='#000000' flood-opacity='0.3'/></filter><path filter='url(#ds)' d='M${leftPts} L${rightPts} Z' fill='${color}'/></svg>`
+  return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`
 }
 
 // Torn-paper dividers between adjacent zones (mirrors frontend-tv ZoneSeams).
@@ -217,14 +263,11 @@ function backgroundCss(bg) {
 
 // Screen background extras: optional torn-paper grain texture. The torn-paper
 // divider between zones is drawn separately (ZoneSeamMarkers / TV ZoneSeams).
-function BackgroundOverlays({ bg }) {
-  if (!bg || bg.pattern !== 'torn-paper') return null
-  return (
-    <div
-      className="pointer-events-none absolute inset-0"
-      style={{ backgroundImage: PAPER_GRAIN, backgroundRepeat: 'repeat', opacity: 0.14 }}
-    />
-  )
+// Screen background extras: no grain overlay anymore — 'torn-paper' means
+// "show the torn-edge divider between adjacent zones", rendered separately
+// by ZoneSeamMarkers below, not a full-screen texture.
+function BackgroundOverlays() {
+  return null
 }
 
 // Compact live badge preview rendered inside the canvas zone boxes
@@ -684,6 +727,20 @@ function ScreenLayoutCanvas() {
   zonesRef.current = layout?.zones || []
   const elementsRef = useRef([])
   elementsRef.current = elements
+  // Debounced auto-save timers: live edits (typing a zone name, dragging px,
+  // rotation, …) update state immediately but the network PUT is deferred so a
+  // keystroke never blocks the UI. Trailing debounce merges bursts into one call.
+  const zonePatchTimers = useRef({})
+  const zonePatchQueue = useRef({})
+  const elementSaveTimer = useRef(null)
+
+  useEffect(() => {
+    return () => {
+      Object.values(zonePatchTimers.current).forEach(clearTimeout)
+      clearTimeout(elementSaveTimer.current)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const load = () => {
     setLoading(true)
@@ -693,7 +750,8 @@ function ScreenLayoutCanvas() {
     setUndoZone(null)
     Promise.all([
       api.get(`/screens/${id}`).then((r) => r.data),
-      api.get(`/screens/${id}/layout`).then((r) => r.data),
+      // preview=1: the builder edits the draft; the TV endpoint serves published only
+      api.get(`/screens/${id}/layout?preview=1`).then((r) => r.data),
       api.get('/categories').then((r) => r.data),
       api.get('/menu').then((r) => r.data),
     ])
@@ -928,13 +986,10 @@ function ScreenLayoutCanvas() {
     }
   }
 
-  const patchZone = async (zoneId, patch) => {
-    setError('')
-    setLayout((l) =>
-      l
-        ? { ...l, zones: l.zones.map((z) => (z.id === zoneId ? { ...z, ...patch } : z)) }
-        : l
-    )
+  const flushZonePending = async (zoneId) => {
+    const patch = zonePatchQueue.current[zoneId]
+    if (!patch) return
+    zonePatchQueue.current[zoneId] = null
     try {
       await api.put(`/zones/${zoneId}`, patch)
       setDirty(true)
@@ -942,6 +997,18 @@ function ScreenLayoutCanvas() {
       setError(err.response?.data?.error || 'Impossible de mettre à jour la zone')
       await load()
     }
+  }
+
+  const patchZone = (zoneId, patch) => {
+    setError('')
+    setLayout((l) =>
+      l
+        ? { ...l, zones: l.zones.map((z) => (z.id === zoneId ? { ...z, ...patch } : z)) }
+        : l
+    )
+    zonePatchQueue.current[zoneId] = { ...(zonePatchQueue.current[zoneId] || {}), ...patch }
+    clearTimeout(zonePatchTimers.current[zoneId])
+    zonePatchTimers.current[zoneId] = setTimeout(() => flushZonePending(zoneId), 500)
   }
 
   const deleteZone = async (zoneId) => {
@@ -1438,17 +1505,22 @@ function ScreenLayoutCanvas() {
     const maxZ = elementsRef.current.reduce((m, e) => Math.max(m, e.zIndex ?? 10), 0)
     return maxZ === 0 ? 10 : maxZ + 1
   }
-  const saveElements = async (nextElements) => {
+  const saveElements = (nextElements) => {
     setError('')
+    setElements(nextElements)
+    elementsRef.current = nextElements
+    setLayout((l) =>
+      l ? { ...l, settings: { ...(l.settings || {}), elements: nextElements } } : l
+    )
+    clearTimeout(elementSaveTimer.current)
+    elementSaveTimer.current = setTimeout(() => flushElementsSave(), 600)
+  }
+  const flushElementsSave = async () => {
+    elementSaveTimer.current = null
     try {
       await api.put(`/screens/${id}/layout`, {
-        // always keep existing settings sub-keys (background, showPrices, …)
-        settings: { ...(layout.settings || {}), elements: nextElements },
+        settings: { elements: elementsRef.current },
       })
-      setElements(nextElements)
-      setLayout((l) =>
-        l ? { ...l, settings: { ...(l.settings || {}), elements: nextElements } } : l
-      )
     } catch (err) {
       setError(err.response?.data?.error || 'Impossible d’enregistrer les éléments')
       await load()
@@ -1464,6 +1536,7 @@ function ScreenLayoutCanvas() {
     const el = {
       id: newElementId(),
       type: 'text',
+      kind: 'plain',
       x: 35,
       y: 45,
       w: 30,
@@ -1472,6 +1545,7 @@ function ScreenLayoutCanvas() {
       text: 'Nouveau texte',
       fontSize: 24,
       color: '#FFFFFF',
+      dark: true,
     }
     addElementToState(el)
   }
@@ -1527,10 +1601,9 @@ function ScreenLayoutCanvas() {
       e.target.value = ''
     }
   }
-  const patchElementById = async (elId, patch) => {
+  const patchElementById = (elId, patch) => {
     const next = elementsRef.current.map((el) => (el.id === elId ? { ...el, ...patch } : el))
-    setElements(next)
-    await saveElements(next)
+    saveElements(next)
   }
   const deleteElement = async (elId) => {
     const next = elementsRef.current.filter((el) => el.id !== elId)
@@ -2437,14 +2510,62 @@ function ScreenLayoutCanvas() {
                       {selectedElement.type === 'text' ? (
                         <>
                           <div>
-                            <Label htmlFor={`el-text-${selectedElement.id}`}>Texte</Label>
-                            <Input
-                              id={`el-text-${selectedElement.id}`}
-                              type="text"
-                              value={selectedElement.text || ''}
-                              onChange={(e) => patchElementById(selectedElement.id, { text: e.target.value })}
-                            />
+                            <Label>Type</Label>
+                            <div className="flex flex-wrap gap-2">
+                              {ELEMENT_KINDS.map((k) => (
+                                <button
+                                  key={k}
+                                  type="button"
+                                  onClick={() =>
+                                    patchElementById(selectedElement.id, {
+                                      kind: k,
+                                      ...(k === 'price' &&
+                                      (selectedElement.price === undefined ||
+                                        selectedElement.price === null ||
+                                        Number.isNaN(selectedElement.price))
+                                        ? { price: 5 }
+                                        : {}),
+                                    })
+                                  }
+                                  className={`rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                                    (selectedElement.kind || 'plain') === k
+                                      ? 'border-brand-500 bg-brand-50 text-brand-600 dark:bg-brand-500/15 dark:text-brand-400'
+                                      : 'border-gray-200 text-gray-600 hover:border-brand-300 dark:border-gray-700 dark:text-gray-300'
+                                  }`}
+                                >
+                                  {ELEMENT_KIND_LABELS[k]}
+                                </button>
+                              ))}
+                            </div>
                           </div>
+
+                          {(selectedElement.kind || 'plain') === 'price' ? (
+                            <div>
+                              <Label htmlFor={`el-price-${selectedElement.id}`}>Prix</Label>
+                              <Input
+                                id={`el-price-${selectedElement.id}`}
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                value={selectedElement.price ?? ''}
+                                onChange={(e) =>
+                                  patchElementById(selectedElement.id, { price: Number(e.target.value) || 0 })
+                                }
+                                placeholder="Ex : 12.90"
+                              />
+                            </div>
+                          ) : (
+                            <div>
+                              <Label htmlFor={`el-text-${selectedElement.id}`}>Texte</Label>
+                              <Input
+                                id={`el-text-${selectedElement.id}`}
+                                type="text"
+                                value={selectedElement.text || ''}
+                                onChange={(e) => patchElementById(selectedElement.id, { text: e.target.value })}
+                              />
+                            </div>
+                          )}
+
                           <div className="grid grid-cols-2 gap-2">
                             <div>
                               <Label htmlFor={`el-size-${selectedElement.id}`}>Taille (px)</Label>
@@ -2455,21 +2576,79 @@ function ScreenLayoutCanvas() {
                                 max="200"
                                 value={selectedElement.fontSize ?? 24}
                                 onChange={(e) =>
-                                  patchElementById(selectedElement.id, { fontSize: Number(e.target.value) || 24 })
+                                  patchElementById(selectedElement.id, {
+                                    fontSize: Math.min(200, Number(e.target.value) || 24),
+                                  })
                                 }
                               />
                             </div>
-                            <div>
-                              <Label htmlFor={`el-color-${selectedElement.id}`}>Couleur</Label>
-                              <input
-                                id={`el-color-${selectedElement.id}`}
-                                type="color"
-                                value={selectedElement.color || '#FFFFFF'}
-                                onChange={(e) => patchElementById(selectedElement.id, { color: e.target.value })}
-                                className="h-10 w-14 cursor-pointer rounded-md border border-gray-300 bg-transparent p-1 dark:border-gray-700"
-                              />
-                            </div>
+                            {['plain', 'hero', 'divider'].includes(selectedElement.kind) && (
+                              <div>
+                                <Label htmlFor={`el-color-${selectedElement.id}`}>Couleur</Label>
+                                <input
+                                  id={`el-color-${selectedElement.id}`}
+                                  type="color"
+                                  value={selectedElement.color || '#FFFFFF'}
+                                  onChange={(e) => patchElementById(selectedElement.id, { color: e.target.value })}
+                                  className="h-10 w-14 cursor-pointer rounded-md border border-gray-300 bg-transparent p-1 dark:border-gray-700"
+                                />
+                              </div>
+                            )}
                           </div>
+
+                          {['banner', 'price'].includes(selectedElement.kind) && (
+                            <div>
+                              <Label>Fond</Label>
+                              <div className="grid grid-cols-2 gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => patchElementById(selectedElement.id, { dark: false })}
+                                  className={`rounded-lg border px-2 py-1.5 text-xs font-medium transition-colors ${
+                                    selectedElement.dark === false
+                                      ? 'border-brand-500 bg-brand-50 text-brand-600 dark:bg-brand-500/15 dark:text-brand-400'
+                                      : 'border-gray-200 text-gray-500 dark:border-gray-700 dark:text-gray-400'
+                                  }`}
+                                >
+                                  Clair
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => patchElementById(selectedElement.id, { dark: true })}
+                                  className={`rounded-lg border px-2 py-1.5 text-xs font-medium transition-colors ${
+                                    selectedElement.dark !== false
+                                      ? 'border-brand-500 bg-brand-50 text-brand-600 dark:bg-brand-500/15 dark:text-brand-400'
+                                      : 'border-gray-200 text-gray-500 dark:border-gray-700 dark:text-gray-400'
+                                  }`}
+                                >
+                                  Sombre
+                                </button>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Accent only drives banner elements — hero titles and
+                              dividers are styled via the generic Couleur picker. */}
+                          {(selectedElement.kind || 'plain') === 'banner' && (
+                            <div>
+                              <Label htmlFor={`el-accent-${selectedElement.id}`}>Couleur accent</Label>
+                              <div className="flex items-center gap-2">
+                                <input
+                                  id={`el-accent-${selectedElement.id}`}
+                                  type="color"
+                                  value={selectedElement.accent || '#FF5A1F'}
+                                  onChange={(e) => patchElementById(selectedElement.id, { accent: e.target.value })}
+                                  className="h-10 w-14 cursor-pointer rounded-md border border-gray-300 bg-transparent p-1 dark:border-gray-700"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => patchElementById(selectedElement.id, { accent: undefined })}
+                                  className="rounded-md border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-500 transition-colors hover:border-brand-300 hover:text-brand-600 dark:border-gray-700 dark:text-gray-400"
+                                >
+                                  Défaut
+                                </button>
+                              </div>
+                            </div>
+                          )}
                         </>
                       ) : (
                         <div className="space-y-3">
@@ -3023,7 +3202,7 @@ function ScreenLayoutCanvas() {
                       {el.type === 'text' ? (
                         <div
                           className="flex h-full w-full items-center justify-center overflow-hidden text-center"
-                          style={{ color: el.color || '#fff', fontSize: Math.min(el.fontSize || 24, 14) }}
+                          style={{ color: el.color || '#fff', fontSize: Math.min(el.fontSize || 24, 48) }}
                         >
                           {el.text}
                         </div>

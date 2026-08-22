@@ -1,7 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
+const prisma = require('../db');
 const auth = require('../middleware/authMiddleware');
 const requireRole = require('../middleware/requireRole');
 const {
@@ -21,6 +20,23 @@ const { resolveLayoutTheme, themeExists } = require('../services/theme.service')
 const { broadcast } = require('../services/broadcast');
 
 const ONLINE_THRESHOLD_MS = 60 * 1000; // considered online if pinged within 60s
+
+// Only 'available' products belong on a live board. Filtering here rather than
+// in the renderer keeps the backend the single source of truth — the TV cannot
+// display what it never received.
+const DISPLAYABLE_STATUS = 'available';
+
+function withDisplayableItems(layout) {
+  return {
+    ...layout,
+    zones: (layout.zones || []).map((zone) => ({
+      ...zone,
+      items: (zone.items || []).filter(
+        (zi) => zi.item && zi.item.status === DISPLAYABLE_STATUS
+      ),
+    })),
+  };
+}
 
 function parseLayout(screen) {
   return { ...screen, layout: normalizeLayout(screen.layout) };
@@ -116,8 +132,25 @@ router.put('/:id', auth, requireRole('admin'), async (req, res) => {
 });
 
 // GET /api/screens/:id/layout — zone-based layout (nested zones + items)
-router.get('/:id/layout', async (req, res) => {
+//
+// Default (what a TV calls): published layouts only. This route used to return
+// the row whatever its status, so every unsaved-but-persisted draft edit went
+// live in front of customers and the draft/publish workflow did nothing.
+//
+// ?preview=1 returns the draft instead, for the builder. It requires an admin
+// token — a preview URL must not become a public backdoor to unpublished menus.
+//
+// Items in status 'out_of_stock' / 'archived' are dropped from the TV response:
+// the board must never advertise something the kitchen has run out of. Preview
+// keeps them so the builder still shows what it is editing.
+router.get('/:id/layout', async (req, res, next) => {
+  if (req.query.preview === '1') {
+    return auth(req, res, () => requireRole('admin')(req, res, () => next()));
+  }
+  return next();
+}, async (req, res) => {
   const id = parseInt(req.params.id, 10);
+  const isPreview = req.query.preview === '1';
   try {
     const layout = await prisma.screenLayout.findUnique({
       where: { screenId: id },
@@ -134,8 +167,12 @@ router.get('/:id/layout', async (req, res) => {
       },
     });
     if (!layout) return res.status(404).json({ error: 'No layout found for this screen' });
-    const theme = await resolveLayoutTheme(prisma, layout);
-    res.json({ ...parseZoneLayout(layout), theme });
+    if (!isPreview && layout.status !== 'published') {
+      return res.status(404).json({ error: 'No published layout for this screen' });
+    }
+    const shaped = isPreview ? layout : withDisplayableItems(layout);
+    const theme = await resolveLayoutTheme(prisma, shaped);
+    res.json({ ...parseZoneLayout(shaped), theme });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

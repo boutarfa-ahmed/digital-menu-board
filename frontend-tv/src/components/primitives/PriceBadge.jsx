@@ -1,4 +1,4 @@
-import { BADGE_STYLES } from '../../theme/designTokens'
+import { BADGE_STYLES, DEFAULT_CURRENCY } from '../../theme/designTokens'
 
 const SIZE_STYLES = {
   sm: { pad: 'px-2.5 py-1', int: 'text-2xl' },
@@ -36,20 +36,23 @@ const VARIANT_STYLES = {
  * @param {'sm'|'md'|'lg'} [size=md] - scales padding + integer size
  * @param {number|boolean} [rotate=0] - degrees to rotate the badge (e.g. -2);
  *   `true` maps to -2deg for legacy boolean usage
- * @param {string} [currency='CHF'] - trailing currency symbol
+ * @param {string} [currency=DEFAULT_CURRENCY] - trailing currency symbol
  * @param {string} [badgeStyle] - 'torn-paper'|'rounded'|'ribbon' variant;
  *   defaults to a slightly-rounded sticker rectangle
  * @param {'dark'|'light'} [variant=dark] - badge color scheme (dark stays default)
  * @param {'black'|'paper'} [tone] - deprecated alias for `variant`
+ * @param {number} [fontSize] - explicit integer-part pixel size; overrides the
+ *   sm/md/lg presets so the badge scales up to 100px (used by free elements).
  */
 export default function PriceBadge({
   price,
   size = 'md',
   rotate = 0,
-  currency = 'CHF',
+  currency = DEFAULT_CURRENCY,
   badgeStyle = null,
   variant,
   tone = 'black',
+  fontSize,
 }) {
   // .toFixed(2) + split keeps the format locale-independent across TV browsers.
   const [integer, cents] = price.toFixed(2).split('.')
@@ -57,6 +60,7 @@ export default function PriceBadge({
   // Explicit variant wins; otherwise fall back to legacy `tone`; default dark.
   const vKey = variant === 'light' || (!variant && tone === 'paper') ? 'light' : 'dark'
   const v = VARIANT_STYLES[vKey]
+  const fontOverride = fontSize ? Math.max(8, Math.min(fontSize, 100)) : null
 
   let borderRadius = '8px' // default: slightly-rounded price sticker
   let clipPath
@@ -76,11 +80,17 @@ export default function PriceBadge({
   return (
     <div
       className={`inline-block font-display ${v.badge} ${s.pad}`}
-      style={{ borderRadius, clipPath, transform }}
+      style={{ borderRadius, clipPath, transform, ...(fontOverride ? { fontSize: fontOverride } : {}) }}
     >
-      <span className={`${s.int} leading-none`}>{integer}</span>
-      <span className="align-super text-[0.55em] leading-none text-accent-orange">,{cents}</span>
-      <span className={`text-[0.65em] leading-none ${v.currency}`}>{currency}</span>
+      <span className={`${s.int} leading-none`} style={fontOverride ? { fontSize: '1em' } : undefined}>
+        {integer}
+      </span>
+      <span className="align-super leading-none text-accent-orange" style={{ fontSize: 'calc(0.55em + 10px)' }}>
+        ,{cents}
+      </span>
+      <span className={`leading-none ${v.currency}`} style={{ fontSize: 'calc(0.65em + 10px)' }}>
+        {currency}
+      </span>
     </div>
   )
 }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { fetchScreenLayout } from '../api/layoutApi'
+import { fetchScreenLayout, pingScreen } from '../api/layoutApi'
 import ScreenRenderer from '../components/layout/ScreenRenderer.jsx'
 import LoadingSkeleton from '../components/layout/LoadingSkeleton.jsx'
 
@@ -51,7 +51,12 @@ function useLayoutEvents(screenId, onUpdate) {
       ws.onmessage = (ev) => {
         try {
           const msg = JSON.parse(ev.data)
-          if (msg.type === 'layout:updated' && msg.screenId === screenId) onUpdate()
+          // 'layout:updated' fires on every draft write, 'layout:published'
+          // when the draft goes live. The TV only ever renders published
+          // layouts, but it must react to both: a publish is the event that
+          // actually changes what customers see.
+          const relevant = msg.type === 'layout:updated' || msg.type === 'layout:published'
+          if (relevant && msg.screenId === screenId) onUpdate()
         } catch {
           /* ignore */
         }
@@ -71,6 +76,18 @@ function useLayoutEvents(screenId, onUpdate) {
   }, [screenId])
 }
 
+// Heartbeat so the admin dashboard can tell this screen is alive.
+const PING_INTERVAL_MS = 15000
+
+function useHeartbeat(screenId) {
+  useEffect(() => {
+    if (screenId == null) return undefined
+    pingScreen(screenId)
+    const timer = setInterval(() => pingScreen(screenId), PING_INTERVAL_MS)
+    return () => clearInterval(timer)
+  }, [screenId])
+}
+
 export default function ScreenDisplay({ screenId }) {
   const [resolvedId, setResolvedId] = useState(() => initialScreenId(screenId))
   const [layout, setLayout] = useState(null)
@@ -80,6 +97,7 @@ export default function ScreenDisplay({ screenId }) {
   const [revision, setRevision] = useState(0)
 
   useLayoutEvents(resolvedId, () => setRevision((r) => r + 1))
+  useHeartbeat(resolvedId)
 
   useEffect(() => {
     let cancelled = false

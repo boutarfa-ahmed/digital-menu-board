@@ -18,17 +18,21 @@ function mulberry32(seed) {
 // - WIDTH_VARIANCE 0.6-1.5: each tooth's span is a random 60%-150% of the
 //   average width; positions are accumulated then normalized so the tear
 //   still spans the full 0-100% edge (uneven spacing, not machine-cut).
-// - RIP_CHANCE 0.2 / RIP_MULT 1.4-1.8: ~20% of teeth tear 1.4x-1.8x deeper
-//   than the shallow-biased norm — spots where the paper ripped further.
+// - MACRO_WAVE: a slow sine (~2.2 periods across the edge, seeded phase)
+//   lifts/drops the whole silhouette by up to ±70% of depth; per-tooth noise
+//   (pow 1.4 bias, up to 40% of depth) stacks on top of it.
+// - RIP_CHANCE 0.2 / RIP_BONUS +30%-60% of depth: ~20% of teeth tear deeper
+//   than the local norm — spots where the paper ripped further.
 // - TIP_JITTER: each vertex shifts off its segment grid point by up to ±35%
 //   of the local tooth width (hard-capped ±2.5% of the edge), so peaks never
 //   align to a regular rhythm; clamped against both neighbours so the
 //   polygon can never fold over itself.
 // - Midpoints: one extra vertex per tooth takes the blend of its neighbours'
 //   depths ±25% noise, breaking up straight chords for a slight curve feel.
-export function tornZoneClipPath(edge, seedKey, jaggedness = 5, depth = 6) {
+export function tornZoneClipPath(edge, seedKey, jaggedness = 7, depth = 5) {
   const rand = mulberry32(String(seedKey).split('').reduce((a, c) => a + c.charCodeAt(0), 0))
-  const teeth = 8 + Math.round(jaggedness * 1.6)
+  const teeth = 16 + Math.round(jaggedness * 2.4) // denser teeth
+  const macroPhase = rand() * Math.PI * 2 // slow wave riding the whole silhouette
   const RIP_CHANCE = 0.2
   const MIN_GAP = 0.3
 
@@ -57,9 +61,12 @@ export function tornZoneClipPath(edge, seedKey, jaggedness = 5, depth = 6) {
     )
     const jitMax = Math.min(2.5, cell * 0.35)
     const x = i === 0 || i === teeth ? xs[i] : xs[i] + (rand() - 0.5) * 2 * jitMax
-    let d = Math.pow(rand(), 1.5) * depth
-    if (rand() < RIP_CHANCE) d *= 1.4 + rand() * 0.4
-    pts.push([x, d])
+    // Macro-wave: one slow sine swell (~2.2 periods, seeded phase) lifting or
+    // dropping the entire silhouette before per-tooth noise stacks on top.
+    const macro = (Math.sin((i / teeth) * Math.PI * 2.2 + macroPhase) * 0.5 + 0.5) * depth * 0.7
+    let d = macro + Math.pow(rand(), 1.4) * depth * 0.4
+    if (rand() < RIP_CHANCE) d += depth * (0.3 + rand() * 0.3)
+    pts.push([x, Math.max(0, d)])
   }
   // Midpoints soften the straight chords between vertices into a subtle curve.
   const dense = []
@@ -164,6 +171,7 @@ export default function TornEdge({
         backgroundImage: background,
         backgroundRepeat: 'repeat',
         boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.12)',
+        filter: 'drop-shadow(0 3px 4px rgba(0,0,0,0.18))',
         ...bandStyle,
       }}
     />

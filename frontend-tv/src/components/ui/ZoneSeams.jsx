@@ -2,20 +2,69 @@
 // screen background pattern is 'torn-paper': every vertical/horizontal seam
 // where two zones touch gets a jagged torn band (patternColor), mirroring the
 // classic "torn paper divider between panels" look from the design spec.
+//
+// Strip look is generated procedurally (seeded, deterministic) rather than
+// hand-drawn paths: dense fine micro-teeth + occasional deeper "rip" notches,
+// plus a baked-in SVG drop shadow — same visual family as a pro ripped-paper
+// stock texture, but license-free and re-colorable per theme.
 
 const GRID = 12
 const DESIGN_H = 1080
 
-function tornStripDataUri(color) {
-  return `url("data:image/svg+xml,${encodeURIComponent(
-    `<svg xmlns='http://www.w3.org/2000/svg' width='64' height='40'><path d='M0 8 L5 13 L10 6 L16 14 L22 5 L28 13 L34 7 L40 14 L46 6 L52 13 L57 8 L63 13 L64 13 L64 27 L58 33 L52 26 L46 34 L40 27 L34 33 L28 26 L22 34 L16 27 L10 33 L5 26 L0 31 Z' fill='${color}'/></svg>`
-  )}")`
+function mulberry32(seed) {
+  return function () {
+    let t = (seed += 0x6d2b79f5)
+    t = Math.imul(t ^ (t >>> 15), t | 1)
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
 }
 
-function tornStripVDataUri(color) {
-  return `url("data:image/svg+xml,${encodeURIComponent(
-    `<svg xmlns='http://www.w3.org/2000/svg' width='40' height='64'><path d='M0 0 L7 6 L2 13 L9 20 L3 27 L10 34 L4 41 L11 48 L5 55 L12 61 L6 64 L34 64 L38 59 L31 52 L36 45 L30 38 L35 31 L29 24 L34 17 L28 10 L33 4 L34 0 Z' fill='${color}'/></svg>`
-  )}")`
+// One jagged edge as a polyline of [pos-along-edge, depth] pairs. Dense teeth
+// (many small segments) with the occasional deeper "rip" for realism.
+function tornEdgePoints(rand, length, segments, depth) {
+  const pts = []
+  for (let i = 0; i <= segments; i++) {
+    const pos = (i / segments) * length
+    let d = Math.pow(rand(), 1.6) * depth
+    if (rand() < 0.16) d += depth * (0.5 + rand() * 0.5) // occasional deeper rip
+    pts.push([pos, d])
+  }
+  return pts
+}
+
+// Horizontal strip band: jagged on BOTH long edges (top + bottom), seamlessly
+// tileable left-right. thickness = band height, length = tile width.
+function tornStripDataUri(color, seed = 1, length = 64, thickness = 36) {
+  const rand = mulberry32(seed)
+  const segs = 22
+  const depth = thickness * 0.34
+  const top = tornEdgePoints(rand, length, segs, depth)
+  const bottom = tornEdgePoints(rand, length, segs, depth)
+  const topPts = top.map(([x, d]) => `${x.toFixed(1)} ${d.toFixed(1)}`).join(' L')
+  const botPts = bottom
+    .map(([x, d]) => `${x.toFixed(1)} ${(thickness - d).toFixed(1)}`)
+    .reverse()
+    .join(' L')
+  const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='${length}' height='${thickness}'><filter id='ds' x='-20%' y='-60%' width='140%' height='220%'><feDropShadow dx='0' dy='2' stdDeviation='1.6' flood-color='#000000' flood-opacity='0.3'/></filter><path filter='url(#ds)' d='M${topPts} L${botPts} Z' fill='${color}'/></svg>`
+  return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`
+}
+
+// Vertical strip band: jagged on BOTH long edges (left + right), seamlessly
+// tileable top-bottom. thickness = band width, length = tile height.
+function tornStripVDataUri(color, seed = 2, length = 64, thickness = 36) {
+  const rand = mulberry32(seed)
+  const segs = 22
+  const depth = thickness * 0.34
+  const left = tornEdgePoints(rand, length, segs, depth)
+  const right = tornEdgePoints(rand, length, segs, depth)
+  const leftPts = left.map(([y, d]) => `${d.toFixed(1)} ${y.toFixed(1)}`).join(' L')
+  const rightPts = right
+    .map(([y, d]) => `${(thickness - d).toFixed(1)} ${y.toFixed(1)}`)
+    .reverse()
+    .join(' L')
+  const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='${thickness}' height='${length}'><filter id='ds' x='-60%' y='-20%' width='220%' height='140%'><feDropShadow dx='2' dy='0' stdDeviation='1.6' flood-color='#000000' flood-opacity='0.3'/></filter><path filter='url(#ds)' d='M${leftPts} L${rightPts} Z' fill='${color}'/></svg>`
+  return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`
 }
 
 // Fill the remaining shape the same way for stacking seams (keeps color continuity).
@@ -69,8 +118,8 @@ export default function ZoneSeams({ zones, patternColor = '#FFFFFF', seamsEnable
             transform: 'translateX(-50%)',
             backgroundImage: tornStripVDataUri(patternColor),
             backgroundRepeat: 'repeat-y',
-            backgroundSize: '40px 64px',
-            opacity: 0.9,
+            backgroundSize: '36px 64px',
+            opacity: 1,
           }}
         />
       ))}
@@ -86,8 +135,8 @@ export default function ZoneSeams({ zones, patternColor = '#FFFFFF', seamsEnable
             transform: 'translateY(-50%)',
             backgroundImage: tornStripDataUri(patternColor),
             backgroundRepeat: 'repeat-x',
-            backgroundSize: '64px 40px',
-            opacity: 0.9,
+            backgroundSize: '64px 36px',
+            opacity: 1,
           }}
         />
       ))}

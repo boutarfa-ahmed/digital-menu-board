@@ -62,3 +62,13 @@ export function badgeStyleOf(theme) {
   const badgeStyle = theme && theme.badgeStyle
   return BADGE_STYLES.includes(badgeStyle) ? badgeStyle : 'torn-paper'
 }
+
+// Currency symbol printed after every price. Comes from the theme so one
+// deployment can serve a Geneva client in CHF and another in € — it used to be
+// hardcoded to 'CHF' inside PriceBadge, which no caller ever overrode.
+export const DEFAULT_CURRENCY = 'CHF'
+
+export function currencyOf(theme) {
+  const c = theme?.currency
+  return typeof c === 'string' && c.trim() ? c.trim() : DEFAULT_CURRENCY
+}

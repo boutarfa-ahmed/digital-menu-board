@@ -76,6 +76,7 @@ model Theme {
   colors     String         @default("{}") // JSON: { primary, secondary, bgDark, bgLight, accent, text }
   fonts      String         @default("{}") // JSON: { heading, body }
   badgeStyle String         @default("torn-paper") // "torn-paper" | "rounded" | "ribbon"
+  currency   String         @default("CHF") // symbol printed after every price (CHF, €, DT...)
   layouts    ScreenLayout[]
   createdAt  DateTime       @default(now())
   updatedAt  DateTime       @default(now())
