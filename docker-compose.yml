@@ -1,0 +1,41 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-galaxyfood}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required — copy .env.example to .env and set one}
+      POSTGRES_DB: ${POSTGRES_DB:-galaxyfood}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      # 5433, not 5432: this machine already runs a native postgresql.service
+      # on the default port. Published so `prisma migrate dev` and `npm run
+      # seed` can target this same database from the host (outside the
+      # backend container) — used once, to generate the initial migration.
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-galaxyfood} -d ${POSTGRES_DB:-galaxyfood}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # Reuses backend/.env for JWT secrets, CORS_ORIGINS, etc. (same file
+    # `npm run dev` reads locally). DATABASE_URL below deliberately overrides
+    # whatever is in that file — locally it points at sqlite/localhost,
+    # inside compose it must resolve the `postgres` service by its DNS name.
+    env_file:
+      - ./backend/.env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-galaxyfood}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-galaxyfood}
+    ports:
+      - "5000:5000"
+
+volumes:
+  postgres_data:
