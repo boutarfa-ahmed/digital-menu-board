@@ -98,12 +98,20 @@ export default function ZoneSeams({ zones, patternColor = '#FFFFFF', seamsEnable
             width: THICKNESS,
             height: `${(s.span / GRID) * DESIGN_H}px`,
             transform: 'translateX(-50%)',
-            backgroundImage: tornStripVDataUri(patternColor),
-            backgroundRepeat: 'repeat-y',
-            backgroundSize: `${THICKNESS}px ${TILE_LEN}px`,
-            opacity: 1,
           }}
-        />
+        >
+          {/* Drift lives on this inner layer, not the outer div above: the
+              outer transform centers the strip on the seam line (static), so
+              the two don't fight over the same CSS property. */}
+          <div
+            className="torn-seam-drift h-full w-full"
+            style={{
+              backgroundImage: tornStripVDataUri(patternColor),
+              backgroundRepeat: 'repeat-y',
+              backgroundSize: `${THICKNESS}px ${TILE_LEN}px`,
+            }}
+          />
+        </div>
       ))}
       {hh.map((s) => (
         <div
@@ -115,12 +123,17 @@ export default function ZoneSeams({ zones, patternColor = '#FFFFFF', seamsEnable
             width: `${(s.span / GRID) * 100}%`,
             height: THICKNESS,
             transform: 'translateY(-50%)',
-            backgroundImage: tornStripDataUri(patternColor),
-            backgroundRepeat: 'repeat-x',
-            backgroundSize: `${TILE_LEN}px ${THICKNESS}px`,
-            opacity: 1,
           }}
-        />
+        >
+          <div
+            className="torn-seam-drift h-full w-full"
+            style={{
+              backgroundImage: tornStripDataUri(patternColor),
+              backgroundRepeat: 'repeat-x',
+              backgroundSize: `${TILE_LEN}px ${THICKNESS}px`,
+            }}
+          />
+        </div>
       ))}
     </>
   )

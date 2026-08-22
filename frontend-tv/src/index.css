@@ -32,3 +32,16 @@
   --color-accent-orange: var(--menu-accent, #FF6B00);
   --color-badge-black: #0D0D0D;
 }
+
+/* Torn-paper seams (ZoneSeams.jsx) drift gently right and back — paper
+   "breathing" rather than sitting perfectly still on the TV. Kept out of the
+   admin builder's own seam markers (ScreenLayoutCanvas.jsx): motion there
+   would fight the precise drag/click-to-hide editing. */
+@keyframes torn-seam-drift {
+  0%, 100% { transform: translateX(0); }
+  50% { transform: translateX(5px); }
+}
+
+.torn-seam-drift {
+  animation: torn-seam-drift 7s ease-in-out infinite;
+}
