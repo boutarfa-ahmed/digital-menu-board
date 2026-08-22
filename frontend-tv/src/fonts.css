@@ -1,0 +1,39 @@
+/* Self-hosted fonts (Anton, Inter, Playfair Display italic) — latin subset
+ * only, since every screen renders French/menu content (U+0000-00FF covers
+ * all French diacritics). Previously loaded from fonts.googleapis.com: a TV
+ * that boots with no network never got a font at all, and Chrome's fallback
+ * (sans-serif everywhere) makes every card look broken, not just untitled.
+ *
+ * Inter and Playfair Display are served by Google as variable-font files —
+ * one physical file covers several weights, matched by the browser via the
+ * font's weight axis. That's why the same .woff2 is referenced by more than
+ * one @font-face rule below; this mirrors exactly what Google's own CDN CSS
+ * does, not a mistake.
+ *
+ * Re-fetching later: https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;600;700&family=Playfair+Display:ital,wght@1,500;1,600;1,700&display=swap
+ * (request with a browser User-Agent, keep only the "latin" @font-face blocks)
+ */
+
+@font-face {
+  font-family: 'Anton';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/anton-400.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('/fonts/inter-400.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Playfair Display';
+  font-style: italic;
+  font-weight: 500 700;
+  font-display: swap;
+  src: url('/fonts/playfair-display-500-italic.woff2') format('woff2');
+}

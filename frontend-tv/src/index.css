@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "./fonts.css";
 
 @theme {
   /* Design tokens (Sous-sprint 7A) — resolved at runtime from the API theme
