@@ -6,6 +6,7 @@
 // front. Elements are purely decorative display — never interactive.
 import CategoryBanner from '../primitives/CategoryBanner.jsx'
 import PriceBadge from '../primitives/PriceBadge.jsx'
+import { badgeTypeOf } from '../../theme/designTokens'
 
 export default function FreeElementsLayer({ elements }) {
   if (!elements || elements.length === 0) return null
@@ -56,6 +57,7 @@ export default function FreeElementsLayer({ elements }) {
                   <PriceBadge
                     price={Number(el.price) || 0}
                     variant={dark ? 'dark' : 'light'}
+                    badgeType={badgeTypeOf(el.badgeType)}
                     size={(cap(el.fontSize) || 24) >= 40 ? 'lg' : (cap(el.fontSize) || 24) <= 20 ? 'sm' : 'md'}
                     fontSize={cap(el.fontSize)}
                   />

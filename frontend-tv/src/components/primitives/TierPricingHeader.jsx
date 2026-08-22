@@ -1,5 +1,5 @@
 import PriceBadge from './PriceBadge.jsx'
-import { DEFAULT_CURRENCY } from '../../theme/designTokens'
+import { DEFAULT_CURRENCY, badgeTypeOf } from '../../theme/designTokens'
 
 /**
  * TierPricingHeader — horizontal row of tiered pricing badges (e.g. "1 Meat
@@ -11,11 +11,13 @@ import { DEFAULT_CURRENCY } from '../../theme/designTokens'
  * @param {'torn-paper'|'rounded'|'ribbon'} [badgeStyle=torn-paper] - passed to each PriceBadge
  * @param {string} [currency=DEFAULT_CURRENCY] - currency symbol for prices
  * @param {'sm'|'md'} [size=md] - PriceBadge size
+ * @param {'type1'|'type2'} [badgeType=type1] - which badge design each tier uses
  */
 export default function TierPricingHeader({
   tiers,
   badgeStyle = 'torn-paper',
   currency = DEFAULT_CURRENCY,
+  badgeType,
   size = 'md',
 }) {
   return (
@@ -25,7 +27,7 @@ export default function TierPricingHeader({
           <span className="rounded bg-menu-badge px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-menu-dark shadow-menu-badge">
             {tier.label}
           </span>
-          <PriceBadge price={tier.price} size={size} badgeStyle={badgeStyle} currency={currency} />
+          <PriceBadge price={tier.price} size={size} badgeStyle={badgeStyle} currency={currency} badgeType={badgeTypeOf(badgeType)} />
         </div>
       ))}
     </div>
