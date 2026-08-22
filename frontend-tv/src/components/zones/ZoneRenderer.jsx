@@ -23,24 +23,47 @@ function bannerSizeOf(fontSize) {
 function ZoneTitle({ name, accent, banner, extraPrice, badgeType, theme, fontSize }) {
   if (!name) return null
   const scale = fontSize ? fontSize / 12 : 1
-  const title = banner
-    ? <CategoryBanner label={name} accent={accent} size={bannerSizeOf(fontSize)} />
-    : (
-      <h2
-        className="font-menu-header uppercase leading-tight tracking-wide"
-        style={{ color: accent, fontSize: Math.round(34 * scale) }}
-      >
-        {name}
-      </h2>
-    )
   const showExtra = Number.isFinite(extraPrice) && extraPrice > 0
-  if (!showExtra) {
-    return <div className="mb-6">{title}</div>
+
+  if (banner) {
+    const title = <CategoryBanner label={name} accent={accent} size={bannerSizeOf(fontSize)} />
+    if (!showExtra) return <div className="mb-6">{title}</div>
+    return (
+      <div className="mb-6 flex items-center gap-3">
+        {title}
+        <PriceBadge price={extraPrice} size="sm" badgeStyle={badgeStyleOf(theme)} currency={currencyOf(theme)} badgeType={badgeTypeOf(badgeType)} />
+      </div>
+    )
+  }
+
+  // Elegant italic divider — the "Meat" / "Sauces" / "Extra" treatment from
+  // the reference boards: title case (not uppercase), Playfair Display
+  // italic, flanked by thin rules spanning the zone width. A price tag
+  // replaces the right-hand rule when the zone carries an "Extra" price,
+  // matching how the reference attaches the tag to the divider rather than
+  // centering the title alone.
+  const title = (
+    <h2
+      className="font-menu-accent italic font-semibold leading-tight"
+      style={{ color: accent, fontSize: Math.round(34 * scale) }}
+    >
+      {name}
+    </h2>
+  )
+
+  if (showExtra) {
+    return (
+      <div className="mb-6 flex items-center gap-3">
+        {title}
+        <PriceBadge price={extraPrice} size="sm" badgeStyle={badgeStyleOf(theme)} currency={currencyOf(theme)} badgeType={badgeTypeOf(badgeType)} />
+      </div>
+    )
   }
   return (
-    <div className="mb-6 flex items-center gap-3">
+    <div className="mb-6 flex items-center gap-4">
+      <span className="h-px flex-1" style={{ background: accent, opacity: 0.35 }} />
       {title}
-      <PriceBadge price={extraPrice} size="sm" badgeStyle={badgeStyleOf(theme)} currency={currencyOf(theme)} badgeType={badgeTypeOf(badgeType)} />
+      <span className="h-px flex-1" style={{ background: accent, opacity: 0.35 }} />
     </div>
   )
 }
