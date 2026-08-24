@@ -266,5 +266,11 @@ async function main() {
 }
 
 main()
-  .catch(console.error)
+  .catch((err) => {
+    console.error(err);
+    // Without this, main()'s rejection (e.g. the production guard above)
+    // is only logged — the process still exits 0, so a CI/deploy pipeline
+    // checking the exit code would never notice the refusal.
+    process.exitCode = 1;
+  })
   .finally(() => prisma.$disconnect());
