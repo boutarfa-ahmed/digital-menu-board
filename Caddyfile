@@ -1,0 +1,31 @@
+# Local/staging: no public domain yet, so `tls internal` makes Caddy issue
+# certs from its own local CA instead of requesting them from Let's Encrypt.
+# *.localhost resolves to 127.0.0.1 on its own (RFC 6761) — no /etc/hosts
+# edit needed on Linux/macOS or in current browsers.
+#
+# Once a real domain exists: replace admin.localhost/tv.localhost below with
+# it and delete the two `tls internal` lines — Caddy switches to automatic
+# Let's Encrypt certs for any publicly-resolvable domain, no other changes
+# needed.
+
+admin.localhost {
+	tls internal
+
+	handle /api/* {
+		reverse_proxy backend:5000
+	}
+	handle {
+		reverse_proxy frontend:80
+	}
+}
+
+tv.localhost {
+	tls internal
+
+	handle /api/* {
+		reverse_proxy backend:5000
+	}
+	handle {
+		reverse_proxy frontend-tv:80
+	}
+}

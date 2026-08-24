@@ -35,7 +35,35 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-galaxyfood}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-galaxyfood}
     ports:
+      # Kept published for local debugging (curl/Postman straight to the
+      # API). Caddy below reaches it over the compose network regardless;
+      # drop this once a real domain + firewall are in place.
       - "5000:5000"
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+
+  frontend-tv:
+    build: ./frontend-tv
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - backend
+      - frontend
+      - frontend-tv
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
 
 volumes:
   postgres_data:
+  caddy_data:
+  caddy_config:
