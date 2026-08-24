@@ -70,12 +70,13 @@ function ZoneTitle({ name, accent, banner, extraPrice, badgeType, theme, fontSiz
 
 // Grid cell: the product image fills the cell edge-to-edge (cover, "GIF-like").
 // No image -> empty cell, no centered fallback icon.
-function GridImageCell({ zi, template }) {
+function GridImageCell({ zi, template, scale = 1 }) {
   const { name, imageUrl } = cardFields(zi.item)
   if (!imageUrl) return null
   const ts = templateStyle(template)
-  const maxH = Math.min(92, Math.round(78 * ts.scale))
-  const maxW = Math.min(95, Math.round(85 * ts.scale))
+  const s = ts.scale * scale
+  const maxH = Math.min(96, Math.round(78 * s))
+  const maxW = Math.min(98, Math.round(85 * s))
   return (
     <div className="flex h-full w-full flex-col items-center justify-center gap-2 p-2">
       <img
@@ -86,7 +87,7 @@ function GridImageCell({ zi, template }) {
       />
       <span
         className="text-center font-menu-header uppercase leading-tight tracking-wide text-menu-text"
-        style={{ fontSize: `${Math.round(14 * ts.scale)}px` }}
+        style={{ fontSize: `${Math.round(14 * s)}px` }}
       >
         {name}
       </span>
@@ -94,7 +95,7 @@ function GridImageCell({ zi, template }) {
   )
 }
 
-function GridContent({ zone, theme }) {
+function GridContent({ zone, theme, scale = 1, badgeType, priceVariant }) {
   const rows = zone.gridConfig?.rows || 1
   const cols = zone.gridConfig?.cols || 1
   const items = zone.items || []
@@ -109,8 +110,8 @@ function GridContent({ zone, theme }) {
   })
 
   const cellContent = (zi, i) => {
-    if (isIconLabel) return <IconLabelCard item={zi.item} theme={theme} />
-    if (isTextOnly) return <TextOnlyCard item={zi.item} theme={theme} />
+    if (isIconLabel) return <IconLabelCard item={zi.item} theme={theme} scale={scale} />
+    if (isTextOnly) return <TextOnlyCard item={zi.item} theme={theme} scale={scale} />
     if (isImageDetail) {
       const c = i % cols
       const mirror = c >= Math.ceil(cols / 2)
@@ -122,10 +123,13 @@ function GridContent({ zone, theme }) {
           template="default"
           zoneSize="sm"
           mirror={mirror}
+          scale={scale}
+          badgeType={badgeType}
+          variant={priceVariant}
         />
       )
     }
-    return <GridImageCell zi={zi} template={template} />
+    return <GridImageCell zi={zi} template={template} scale={scale} />
   }
 
   return (
@@ -149,7 +153,7 @@ function GridContent({ zone, theme }) {
   )
 }
 
-function ListContent({ zone, theme, settings }) {
+function ListContent({ zone, theme, settings, scale = 1, badgeType, priceVariant }) {
   const items = zone.items || []
   const showPrice = settings?.showPrices !== false
   const isTextOnly = zone.cardTemplate === 'text-only'
@@ -163,7 +167,7 @@ function ListContent({ zone, theme, settings }) {
       {items.length === 0 ? (
         <p className="text-center font-menu-body text-sm text-menu-text-muted">Vide</p>
       ) : isTextOnly ? (
-        items.slice(0, 12).map((zi) => <TextOnlyCard key={zi.itemId} item={zi.item} theme={theme} />)
+        items.slice(0, 12).map((zi) => <TextOnlyCard key={zi.itemId} item={zi.item} theme={theme} scale={scale} />)
       ) : isImageDetail ? (
         items.slice(0, 8).map((zi) => (
           <ImageTitleDescPriceCard
@@ -173,6 +177,9 @@ function ListContent({ zone, theme, settings }) {
             showPrice={showPrice}
             template="default"
             zoneSize="sm"
+            scale={scale}
+            badgeType={badgeType}
+            variant={priceVariant}
           />
         ))
       ) : (
@@ -184,6 +191,9 @@ function ListContent({ zone, theme, settings }) {
             showPrice={showPrice}
             template={zone.cardTemplate}
             qtyLabel={zi.qty != null ? zi.qty : null}
+            scale={scale}
+            badgeType={badgeType}
+            variant={priceVariant}
           />
         ))
       )}
@@ -263,6 +273,18 @@ export default function ZoneRenderer({ zone, theme, settings }) {
   const isGrid = zone.zoneType === 'grid'
   const isList = zone.zoneType === 'list' || zone.zoneType === 'carousel' || zone.zoneType === 'menu'
 
+  // Same "Taille de police" zone style control the title below already uses
+  // (base 12px = 1x) — also drives the product cards' own size (image, name,
+  // description, price) so raising it grows the whole card, not just the title.
+  const cardScale = zStyle.fontSize ? zStyle.fontSize / 12 : 1
+
+  // Product price badge follows the zone's explicit Clair/Sombre choice for
+  // contrast (Sombre -> light/paper sticker, Clair -> dark/black sticker),
+  // same inversion already applied to `text` above. Left undefined (PriceBadge's
+  // own default = dark) when the zone never set `dark` explicitly, so zones
+  // that predate this control don't change appearance.
+  const priceVariant = zStyle.dark === undefined ? undefined : isDark ? 'light' : 'dark'
+
   let content
   if (isBanner) {
     content = <BannerContent zone={zone} theme={theme} settings={settings} accent={accent} fontSize={zStyle.fontSize} badgeType={zStyle.badgeType} />
@@ -270,14 +292,14 @@ export default function ZoneRenderer({ zone, theme, settings }) {
     content = (
       <div className="flex h-full flex-col">
         <ZoneTitle name={zone.name} accent={accent} extraPrice={zone.backgroundStyle?.extraPrice} badgeType={zStyle.badgeType} theme={theme} banner={zone.backgroundStyle?.banner} fontSize={zStyle.fontSize} />
-        <GridContent zone={zone} theme={theme} />
+        <GridContent zone={zone} theme={theme} scale={cardScale} badgeType={zStyle.badgeType} priceVariant={priceVariant} />
       </div>
     )
   } else if (isList) {
     content = (
       <div className="flex h-full flex-col">
         <ZoneTitle name={zone.name} accent={accent} extraPrice={zone.backgroundStyle?.extraPrice} badgeType={zStyle.badgeType} theme={theme} banner={zone.backgroundStyle?.banner} fontSize={zStyle.fontSize} />
-        <ListContent zone={zone} theme={theme} settings={settings} />
+        <ListContent zone={zone} theme={theme} settings={settings} scale={cardScale} badgeType={zStyle.badgeType} priceVariant={priceVariant} />
       </div>
     )
   } else {

@@ -14,6 +14,17 @@ const GRID = 12
 const REQUIRES_GRID = ['grid', 'list', 'carousel']
 const CONTENT_ZONE_TYPES = ['menu', 'grid', 'list', 'carousel']
 
+// Free elements (T8) are stored as % of the 1920x1080 TV design canvas — see
+// frontend-tv/src/components/layout/FreeElementsLayer.jsx. Image elements are
+// edited in px in this admin UI, so convert both ways against that canvas.
+const EL_DESIGN_W = 1920
+const EL_DESIGN_H = 1080
+const EL_IMAGE_MAX_PX = 1000
+const pxToPctW = (px) => (px / EL_DESIGN_W) * 100
+const pxToPctH = (px) => (px / EL_DESIGN_H) * 100
+const pctToPxW = (pct) => Math.round((pct / 100) * EL_DESIGN_W)
+const pctToPxH = (pct) => Math.round((pct / 100) * EL_DESIGN_H)
+
 const ZONE_TYPE_LABELS = {
   menu: 'Menu',
   grid: 'Grille',
@@ -82,7 +93,7 @@ const BADGE_POSITION_LABELS = {
 }
 
 // T7.4 — zone style overrides (backgroundStyle JSON on the zone)
-const FONT_SIZES = [12, 14, 16, 18, 20, 24, 28]
+const FONT_SIZES = [6, 8, 10, 12, 14, 16, 18, 20, 24, 28]
 const STYLE_DEFAULTS = {
   bgDark: '#121212',
   bgLight: '#F5F3EF',
@@ -679,10 +690,75 @@ const RESIZE_HANDLES = [
   { dir: 'se', cls: '-bottom-0.5 -right-0.5 cursor-nwse-resize' },
 ]
 
+// Free elements: the selection frame floats outline-offset-[7.5px] away from
+// the actual element on EACH side (see the "Éléments" overlay below), so the
+// frame's own width/height end up exactly element size + 15px total (e.g. a
+// 500x400 element gets a ~515x415 frame) instead of touching the image/text
+// bounds. Handles are nudged out to sit on that same ring (7.5px offset +
+// ~1px half the outline's own stroke + half the handle's own 10px size).
+const EL_RESIZE_HANDLES = [
+  { dir: 'nw', cls: '-left-[13.5px] -top-[13.5px] cursor-nwse-resize' },
+  { dir: 'ne', cls: '-right-[13.5px] -top-[13.5px] cursor-nesw-resize' },
+  { dir: 'sw', cls: '-bottom-[13.5px] -left-[13.5px] cursor-nesw-resize' },
+  { dir: 'se', cls: '-bottom-[13.5px] -right-[13.5px] cursor-nwse-resize' },
+]
+
 const overlaps = (a, b) =>
   a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h
 
 const clamp = (n, min, max) => Math.max(min, Math.min(max, n))
+
+// Free-floating image elements: a PNG/WEBP export often carries transparent
+// padding around the actual drawing (e.g. a torn-paper sticker on a square
+// canvas). Since the element's box/frame is exactly the uploaded image's own
+// pixel dimensions, that padding used to end up INSIDE the box too — the
+// visible artwork never really reached an edge or corner. Trim it once here,
+// at upload time, so the stored image (and thus the frame) hugs only the
+// non-transparent pixels.
+const TRIM_ALPHA_THRESHOLD = 10
+async function trimTransparentPadding(file) {
+  if (!/png|webp/.test(file.type || '')) return file
+  try {
+    const bitmap = await createImageBitmap(file)
+    const canvas = document.createElement('canvas')
+    canvas.width = bitmap.width
+    canvas.height = bitmap.height
+    const ctx = canvas.getContext('2d')
+    ctx.drawImage(bitmap, 0, 0)
+    const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height)
+
+    let minX = canvas.width
+    let minY = canvas.height
+    let maxX = -1
+    let maxY = -1
+    for (let y = 0; y < canvas.height; y++) {
+      for (let x = 0; x < canvas.width; x++) {
+        if (data[(y * canvas.width + x) * 4 + 3] > TRIM_ALPHA_THRESHOLD) {
+          if (x < minX) minX = x
+          if (x > maxX) maxX = x
+          if (y < minY) minY = y
+          if (y > maxY) maxY = y
+        }
+      }
+    }
+
+    const nothingVisible = maxX < 0
+    const nothingToTrim = minX === 0 && minY === 0 && maxX === canvas.width - 1 && maxY === canvas.height - 1
+    if (nothingVisible || nothingToTrim) return file
+
+    const w = maxX - minX + 1
+    const h = maxY - minY + 1
+    const trimmed = document.createElement('canvas')
+    trimmed.width = w
+    trimmed.height = h
+    trimmed.getContext('2d').drawImage(canvas, minX, minY, w, h, 0, 0, w, h)
+    const blob = await new Promise((resolve) => trimmed.toBlob(resolve, 'image/png'))
+    if (!blob) return file
+    return new File([blob], file.name.replace(/\.\w+$/, '.png'), { type: 'image/png' })
+  } catch {
+    return file
+  }
+}
 
 function findFreePosition(zones, w, h) {
   for (let y = 0; y <= GRID - h; y += 1) {
@@ -791,6 +867,11 @@ function ScreenLayoutCanvas() {
   const [elements, setElements] = useState([])
   const [selectedElementId, setSelectedElementId] = useState(null)
   const [elGesture, setElGesture] = useState(null)
+  // Live rect while dragging/resizing an element — kept OUT of elGesture so
+  // updating it doesn't re-run the pointermove-listener effect below on every
+  // pixel of movement (that used to tear down + re-add window listeners per
+  // frame, which is what made dragging feel heavy).
+  const [elDragRect, setElDragRect] = useState(null)
   const [elUploading, setElUploading] = useState(false)
   const elAddInputRef = useRef(null)
   const elChangeInputRef = useRef(null)
@@ -902,7 +983,6 @@ function ScreenLayoutCanvas() {
       grab: { x: pt.x - el.x, y: pt.y - el.y },
       start: pt,
       orig: { x: el.x, y: el.y, w: el.w, h: el.h },
-      rect: { x: el.x, y: el.y, w: el.w, h: el.h },
     })
   }
 
@@ -917,7 +997,6 @@ function ScreenLayoutCanvas() {
       dir,
       start: pt,
       orig: { x: el.x, y: el.y, w: el.w, h: el.h },
-      rect: { x: el.x, y: el.y, w: el.w, h: el.h },
     })
   }
 
@@ -993,9 +1072,12 @@ function ScreenLayoutCanvas() {
   useEffect(() => {
     if (!elGesture) return
 
-    const onMove = (e) => {
+    const { mode, dir, grab, start, orig } = elGesture
+    let rafId = null
+    let latestRect = orig
+
+    const computeRect = (e) => {
       const pt = pctFromEvent(e)
-      const { mode, dir, grab, start, orig } = elGesture
       let rect = { ...orig }
 
       if (mode === 'move') {
@@ -1019,21 +1101,38 @@ function ScreenLayoutCanvas() {
         rect.x = clamp(rect.x, 0, 100 - rect.w)
         rect.y = clamp(rect.y, 0, 100 - rect.h)
       }
+      return rect
+    }
 
-      setElGesture((g) => (g ? { ...g, rect } : g))
+    // Throttle to one React update per animation frame — raw pointermove
+    // fires far more often than the screen can repaint, and each update used
+    // to re-render the whole canvas (all zones + elements), which is what
+    // made dragging feel heavy.
+    const onMove = (e) => {
+      latestRect = computeRect(e)
+      if (rafId == null) {
+        rafId = requestAnimationFrame(() => {
+          rafId = null
+          setElDragRect(latestRect)
+        })
+      }
     }
 
     const onUp = () => {
+      if (rafId != null) {
+        cancelAnimationFrame(rafId)
+        rafId = null
+      }
       const g = elGesture
       setElGesture(null)
-      if (!g) return
+      setElDragRect(null)
       const changed =
-        g.rect.x !== g.orig.x || g.rect.y !== g.orig.y || g.rect.w !== g.orig.w || g.rect.h !== g.orig.h
+        latestRect.x !== g.orig.x || latestRect.y !== g.orig.y || latestRect.w !== g.orig.w || latestRect.h !== g.orig.h
       if (!changed) {
         setSelectedElementId(g.elId)
         return
       }
-      const next = elementsRef.current.map((el) => (el.id === g.elId ? { ...el, ...g.rect } : el))
+      const next = elementsRef.current.map((el) => (el.id === g.elId ? { ...el, ...latestRect } : el))
       setElements(next)
       saveElements(next)
     }
@@ -1042,6 +1141,7 @@ function ScreenLayoutCanvas() {
     window.addEventListener('pointerup', onUp)
     window.addEventListener('pointercancel', onUp)
     return () => {
+      if (rafId != null) cancelAnimationFrame(rafId)
       window.removeEventListener('pointermove', onMove)
       window.removeEventListener('pointerup', onUp)
       window.removeEventListener('pointercancel', onUp)
@@ -1627,6 +1727,25 @@ function ScreenLayoutCanvas() {
     elAddTypeRef.current = type
     elAddInputRef.current?.click()
   }
+  // Gallery of every image already used by a free element on this layout —
+  // lets the user drop the same logo/image on canvas again without
+  // re-uploading the file.
+  const elementImageGallery = Array.from(
+    new Set(elements.filter((el) => el.imageUrl).map((el) => el.imageUrl))
+  )
+  const addElementFromGalleryUrl = (url) => {
+    const el = {
+      id: newElementId(),
+      type: 'image',
+      x: 40,
+      y: 40,
+      w: 20,
+      h: 20,
+      zIndex: nextElementZ(),
+      imageUrl: url,
+    }
+    addElementToState(el)
+  }
   const handleElAddUpload = async (e) => {
     const file = e.target.files?.[0]
     if (!file) return
@@ -1634,7 +1753,7 @@ function ScreenLayoutCanvas() {
     setError('')
     try {
       const fd = new FormData()
-      fd.append('image', file)
+      fd.append('image', await trimTransparentPadding(file))
       const { data } = await api.post('/upload', fd, {
         headers: { 'Content-Type': 'multipart/form-data' },
       })
@@ -1663,7 +1782,7 @@ function ScreenLayoutCanvas() {
     setError('')
     try {
       const fd = new FormData()
-      fd.append('image', file)
+      fd.append('image', await trimTransparentPadding(file))
       const { data } = await api.post('/upload', fd, {
         headers: { 'Content-Type': 'multipart/form-data' },
       })
@@ -1838,7 +1957,7 @@ function ScreenLayoutCanvas() {
 
       <div className="flex flex-col gap-6 lg:flex-row">
         {isAdmin && screen && layout && panelOpen && (
-          <aside className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white lg:w-72 lg:flex-none dark:border-gray-800 dark:bg-white/[0.03]">
+          <aside className="flex max-h-[75vh] min-h-0 flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white lg:sticky lg:top-24 lg:w-72 lg:max-h-[calc(100vh-7rem)] lg:flex-none dark:border-gray-800 dark:bg-white/[0.03]">
             <div className="flex border-b border-gray-100 dark:border-gray-800">
 {[
                     { key: 'produits', label: 'Produits' },
@@ -2450,8 +2569,9 @@ function ScreenLayoutCanvas() {
                       </p>
                     </div>
 
-                    {/* Vaut pour le prix Extra ET pour les paliers (1/2/3 viandes)
-                        rendus par TierPricingHeader dans une zone bannière. */}
+                    {/* Vaut pour le prix Extra, les paliers (1/2/3 viandes) rendus par
+                        TierPricingHeader dans une zone bannière, ET pour le badge prix
+                        de chaque produit dans une zone grille/liste. */}
                     <BadgeTypePicker
                       value={styleCfg.badgeType}
                       dark={styleCfg.dark !== false}
@@ -2530,6 +2650,25 @@ function ScreenLayoutCanvas() {
                     className="hidden"
                     onChange={handleElAddUpload}
                   />
+
+                  {elementImageGallery.length > 0 && (
+                    <div>
+                      <Label>Galerie (images déjà utilisées)</Label>
+                      <div className="grid grid-cols-5 gap-1.5">
+                        {elementImageGallery.map((url) => (
+                          <button
+                            key={url}
+                            type="button"
+                            onClick={() => addElementFromGalleryUrl(url)}
+                            title="Ajouter cette image au canvas"
+                            className="aspect-square overflow-hidden rounded-md border border-gray-200 bg-white transition-colors hover:border-brand-400 dark:border-gray-700 dark:bg-gray-900"
+                          >
+                            <img src={url} alt="" className="h-full w-full object-contain" />
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
@@ -2764,6 +2903,37 @@ function ScreenLayoutCanvas() {
                               disabled={elUploading}
                             />
                           </label>
+
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <Label htmlFor={`el-w-${selectedElement.id}`}>Largeur (px, max {EL_IMAGE_MAX_PX})</Label>
+                              <Input
+                                id={`el-w-${selectedElement.id}`}
+                                type="number"
+                                min="1"
+                                max={EL_IMAGE_MAX_PX}
+                                value={pctToPxW(selectedElement.w)}
+                                onChange={(e) => {
+                                  const px = clamp(Number(e.target.value) || 1, 1, EL_IMAGE_MAX_PX)
+                                  patchElementById(selectedElement.id, { w: pxToPctW(px) })
+                                }}
+                              />
+                            </div>
+                            <div>
+                              <Label htmlFor={`el-h-${selectedElement.id}`}>Hauteur (px, max {EL_IMAGE_MAX_PX})</Label>
+                              <Input
+                                id={`el-h-${selectedElement.id}`}
+                                type="number"
+                                min="1"
+                                max={EL_IMAGE_MAX_PX}
+                                value={pctToPxH(selectedElement.h)}
+                                onChange={(e) => {
+                                  const px = clamp(Number(e.target.value) || 1, 1, EL_IMAGE_MAX_PX)
+                                  patchElementById(selectedElement.id, { h: pxToPctH(px) })
+                                }}
+                              />
+                            </div>
+                          </div>
                         </div>
                       )}
 
@@ -2873,7 +3043,7 @@ function ScreenLayoutCanvas() {
               onPointerDown={(e) => {
                 if (e.target === canvasRef.current) setSelectedId(null)
               }}
-              className="relative w-full select-none overflow-hidden rounded-lg border-2 border-gray-300 bg-gray-900 shadow-xl dark:border-gray-700"
+              className="relative w-full select-none overflow-hidden border-2 border-gray-300 bg-gray-900 shadow-xl dark:border-gray-700"
               style={{
                 aspectRatio: '16 / 9',
                 ...(screenBg ? backgroundCss(screenBg) : {}),
@@ -3266,7 +3436,7 @@ function ScreenLayoutCanvas() {
               {panelTab === 'elements' &&
                 elements.map((el) => {
                   const active = elGesture?.elId === el.id
-                  const rect = active ? elGesture.rect : el
+                  const rect = active && elDragRect ? elDragRect : el
                   return (
                     <div
                       key={el.id}
@@ -3275,10 +3445,10 @@ function ScreenLayoutCanvas() {
                         e.stopPropagation()
                         setSelectedElementId(el.id)
                       }}
-                      className={`absolute border-2 border-dashed ${
+                      className={`absolute outline-2 outline-dashed outline-offset-[7.5px] ${
                         selectedElementId === el.id
-                          ? 'border-brand-500'
-                          : 'border-transparent hover:border-brand-300'
+                          ? 'outline-brand-500'
+                          : 'outline-transparent hover:outline-brand-300'
                       } ${isAdmin ? 'cursor-move' : ''}`}
                       style={{
                         left: `${rect.x}%`,
@@ -3297,7 +3467,7 @@ function ScreenLayoutCanvas() {
                           {el.text}
                         </div>
                       ) : el.imageUrl ? (
-                        <img src={el.imageUrl} alt="" className="h-full w-full object-contain" />
+                        <img src={el.imageUrl} alt="" className="h-full w-full object-fill" />
                       ) : (
                         <div className="flex h-full w-full items-center justify-center bg-gray-700/50 text-[10px] text-gray-300">
                           {el.type}
@@ -3305,7 +3475,7 @@ function ScreenLayoutCanvas() {
                       )}
                       {isAdmin && (
                         <>
-                          {RESIZE_HANDLES.map(({ dir, cls }) => (
+                          {EL_RESIZE_HANDLES.map(({ dir, cls }) => (
                             <span
                               key={dir}
                               onPointerDown={(e) => startElResize(e, el, dir)}

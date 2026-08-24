@@ -37,3 +37,14 @@
   font-display: swap;
   src: url('/fonts/playfair-display-500-italic.woff2') format('woff2');
 }
+
+/* Handwritten/marker style used for the free-element "Séparateur" divider
+ * text (see FreeElementsLayer.jsx) — self-hosted from the user-supplied
+ * OFL-licensed family (license copy: public/fonts/tagesschrift-OFL.txt). */
+@font-face {
+  font-family: 'Tagesschrift';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/tagesschrift-400.woff2') format('woff2');
+}
