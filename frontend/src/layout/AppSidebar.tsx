@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 
 import {
@@ -21,6 +21,8 @@ type NavItem = {
   icon: React.ReactNode;
   path?: string;
   adminOnly?: boolean;
+  // WIP: page not finished yet — set to false to bring it back in the sidebar.
+  hidden?: boolean;
   subItems?: { name: string; path: string; pro?: boolean; new?: boolean }[];
 };
 
@@ -50,12 +52,14 @@ const navItems: NavItem[] = [
     icon: <BoxIconLine />,
     path: "/dashboard/pricing",
     adminOnly: true,
+    hidden: true,
   },
   {
     name: "Paramètres",
     icon: <LockIcon />,
     path: "/dashboard/settings",
     adminOnly: true,
+    hidden: true,
   },
 ];
 
@@ -64,11 +68,13 @@ const othersItems: NavItem[] = [
     icon: <PlugInIcon />,
     name: "Authentification",
     subItems: [{ name: "Connexion", path: "/login" }],
+    hidden: true,
   },
   {
     icon: <PageIcon />,
     name: "Pages",
     subItems: [{ name: "Erreur 404", path: "/error-404" }],
+    hidden: true,
   },
 ];
 
@@ -78,7 +84,14 @@ const AppSidebar: React.FC = () => {
   const location = useLocation();
 
   const isAdmin = user?.role === "admin";
-  const visibleNavItems = navItems.filter((item) => !item.adminOnly || isAdmin);
+  const visibleNavItems = useMemo(
+    () => navItems.filter((item) => !item.hidden && (!item.adminOnly || isAdmin)),
+    [isAdmin]
+  );
+  const visibleOthersItems = useMemo(
+    () => othersItems.filter((item) => !item.hidden),
+    []
+  );
 
   const [openSubmenu, setOpenSubmenu] = useState<{
     type: "main" | "others";
@@ -97,7 +110,7 @@ const AppSidebar: React.FC = () => {
   useEffect(() => {
     let submenuMatched = false;
     ["main", "others"].forEach((menuType) => {
-      const items = menuType === "main" ? navItems : othersItems;
+      const items = menuType === "main" ? visibleNavItems : visibleOthersItems;
       items.forEach((nav, index) => {
         if (nav.subItems) {
           nav.subItems.forEach((subItem) => {
@@ -116,7 +129,7 @@ const AppSidebar: React.FC = () => {
     if (!submenuMatched) {
       setOpenSubmenu(null);
     }
-  }, [location, isActive]);
+  }, [location, isActive, visibleNavItems, visibleOthersItems]);
 
   useEffect(() => {
     if (openSubmenu !== null) {
@@ -322,22 +335,24 @@ const AppSidebar: React.FC = () => {
               </h2>
               {renderMenuItems(visibleNavItems, "main")}
             </div>
-            <div className="">
-              <h2
-                className={`mb-4 text-xs uppercase flex leading-[20px] text-gray-400 ${
-                  !isExpanded && !isHovered
-                    ? "lg:justify-center"
-                    : "justify-start"
-                }`}
-              >
-                {isExpanded || isHovered || isMobileOpen ? (
-                  "Autres"
-                ) : (
-                  <HorizontaLDots />
-                )}
-              </h2>
-              {renderMenuItems(othersItems, "others")}
-            </div>
+            {visibleOthersItems.length > 0 && (
+              <div className="">
+                <h2
+                  className={`mb-4 text-xs uppercase flex leading-[20px] text-gray-400 ${
+                    !isExpanded && !isHovered
+                      ? "lg:justify-center"
+                      : "justify-start"
+                  }`}
+                >
+                  {isExpanded || isHovered || isMobileOpen ? (
+                    "Autres"
+                  ) : (
+                    <HorizontaLDots />
+                  )}
+                </h2>
+                {renderMenuItems(visibleOthersItems, "others")}
+              </div>
+            )}
           </div>
         </nav>
       </div>
