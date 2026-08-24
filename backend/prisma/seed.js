@@ -1,3 +1,4 @@
+require('dotenv').config();
 const { PrismaClient } = require('@prisma/client');
 const bcrypt = require('bcrypt');
 const prisma = new PrismaClient();
@@ -5,10 +6,36 @@ const prisma = new PrismaClient();
 // Seed admin. The seed never created a user, so the only way to get an account
 // was the (then public) register endpoint — which is exactly why it was open.
 // Register is admin-only now, so the admin has to come from here.
+//
+// No fallback password: this file is public (readable by anyone with repo
+// access), so a hardcoded default would be a known admin password for every
+// deploy that forgot to set one. Mirrors the readSecret() contract in
+// src/config/env.js.
 const SEED_ADMIN_EMAIL = process.env.SEED_ADMIN_EMAIL || 'ahmed@galaxy.com';
-const SEED_ADMIN_PASSWORD = process.env.SEED_ADMIN_PASSWORD || 'changeme123';
+const SEED_ADMIN_PASSWORD = process.env.SEED_ADMIN_PASSWORD;
+if (!SEED_ADMIN_PASSWORD || SEED_ADMIN_PASSWORD.trim().length < 8) {
+  throw new Error(
+    '[seed] SEED_ADMIN_PASSWORD is required and must be at least 8 characters. Set it in backend/.env.'
+  );
+}
 
 async function main() {
+  // Every run below wipes menu/category/screen/theme data before recreating
+  // demo content — fine against an empty dev database, catastrophic against a
+  // production one a restaurant has since filled with real items. Refuse to
+  // run destructively in production unless explicitly forced (first deploy
+  // against an empty database is still allowed through).
+  if (process.env.NODE_ENV === 'production' && process.env.SEED_FORCE !== 'yes') {
+    const existingCategories = await prisma.category.count();
+    if (existingCategories > 0) {
+      throw new Error(
+        '[seed] Refusing to run: NODE_ENV=production and the database already has data. ' +
+          'This script deletes all menu items/categories/screens/themes before reseeding. ' +
+          'Set SEED_FORCE=yes if you really mean to wipe production data.'
+      );
+    }
+  }
+
   // Clear existing data
   await prisma.menuItem.deleteMany();
   await prisma.category.deleteMany();
@@ -231,7 +258,7 @@ async function main() {
     },
   });
 
-  console.log('Admin: ' + admin.email + ' (password from SEED_ADMIN_PASSWORD, default "changeme123")');
+  console.log('Admin: ' + admin.email + ' (password from SEED_ADMIN_PASSWORD)');
   console.log(
     'Seed completed: 1 theme (' + defaultTheme.name + '), 5 categories, ' + items.length + ' items, ' + screens.length + ' screens, ' +
       '1 layout (' + layout.id + ') with 3 zones and 7 zone items created'
