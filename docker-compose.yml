@@ -12,8 +12,11 @@ services:
       # 5433, not 5432: this machine already runs a native postgresql.service
       # on the default port. Published so `prisma migrate dev` and `npm run
       # seed` can target this same database from the host (outside the
-      # backend container) — used once, to generate the initial migration.
-      - "5433:5432"
+      # backend container). Bound to 127.0.0.1: reachable from this machine
+      # (local dev, ad-hoc `psql`) but not from the network — on a real
+      # server, "5433:5432" alone would let anyone on the internet who finds
+      # the port talk to Postgres directly, bypassing the app entirely.
+      - "127.0.0.1:5433:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-galaxyfood} -d ${POSTGRES_DB:-galaxyfood}"]
       interval: 5s
@@ -35,10 +38,11 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-galaxyfood}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-galaxyfood}
     ports:
-      # Kept published for local debugging (curl/Postman straight to the
-      # API). Caddy below reaches it over the compose network regardless;
-      # drop this once a real domain + firewall are in place.
-      - "5000:5000"
+      # Bound to 127.0.0.1 for local debugging (curl/Postman straight to the
+      # API, no TLS ceremony) without exposing the API on the network — Caddy
+      # reaches it over the compose network regardless, so nothing loses
+      # access by this being localhost-only.
+      - "127.0.0.1:5000:5000"
 
   frontend:
     build: ./frontend
