@@ -5,7 +5,7 @@ const auth = require('../middleware/authMiddleware');
 const requireRole = require('../middleware/requireRole');
 
 // GET /api/categories  OR  GET /api/categories?id=1
-router.get('/', async (req, res) => {
+router.get('/', async (req, res, next) => {
   const { id } = req.query;
   try {
     if (id) {
@@ -22,12 +22,12 @@ router.get('/', async (req, res) => {
     });
     res.json(categories);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 
 // GET /api/categories/:id
-router.get('/:id', async (req, res) => {
+router.get('/:id', async (req, res, next) => {
   try {
     const category = await prisma.category.findUnique({
       where: { id: parseInt(req.params.id) },
@@ -36,12 +36,12 @@ router.get('/:id', async (req, res) => {
     if (!category) return res.status(404).json({ error: 'Category not found' });
     res.json(category);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 
 // POST /api/categories (protected)
-router.post('/', auth, requireRole('admin'), async (req, res) => {
+router.post('/', auth, requireRole('admin'), async (req, res, next) => {
   const { name, order, icon, color } = req.body;
 
   if (!name || typeof name !== 'string' || name.trim().length === 0) {
@@ -62,12 +62,12 @@ router.post('/', auth, requireRole('admin'), async (req, res) => {
     if (err.code === 'P2002') {
       return res.status(409).json({ error: `Category "${name.trim()}" already exists` });
     }
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 
 // PUT /api/categories/reorder (protected) — batch update display order
-router.put('/reorder', auth, requireRole('admin'), async (req, res) => {
+router.put('/reorder', auth, requireRole('admin'), async (req, res, next) => {
   const { ids } = req.body;
 
   if (!Array.isArray(ids) || ids.length === 0) {
@@ -89,12 +89,12 @@ router.put('/reorder', auth, requireRole('admin'), async (req, res) => {
     });
     res.json(categories);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 
 // PUT /api/categories/:id (protected)
-router.put('/:id', auth, requireRole('admin'), async (req, res) => {
+router.put('/:id', auth, requireRole('admin'), async (req, res, next) => {
   const { name, order, icon, color } = req.body;
   const id = parseInt(req.params.id);
 
@@ -123,12 +123,12 @@ router.put('/:id', auth, requireRole('admin'), async (req, res) => {
     if (err.code === 'P2002') {
       return res.status(409).json({ error: `Category "${name.trim()}" already exists` });
     }
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 
 // DELETE /api/categories/:id (protected)
-router.delete('/:id', auth, requireRole('admin'), async (req, res) => {
+router.delete('/:id', auth, requireRole('admin'), async (req, res, next) => {
   const id = parseInt(req.params.id);
   try {
     const category = await prisma.category.findUnique({ where: { id } });
@@ -138,7 +138,7 @@ router.delete('/:id', auth, requireRole('admin'), async (req, res) => {
     await prisma.category.delete({ where: { id } });
     res.status(204).end();
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 

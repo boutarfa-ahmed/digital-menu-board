@@ -13,38 +13,38 @@ const {
 } = require('../services/theme.service');
 
 // GET /api/themes — list all themes
-router.get('/', async (req, res) => {
+router.get('/', async (req, res, next) => {
   try {
     const themes = await prisma.theme.findMany({ orderBy: { id: 'asc' } });
     res.json(themes.map(parseTheme));
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 
 // GET /api/themes/default — fallback theme (Galaxy Food default if no DB theme)
-router.get('/default', async (req, res) => {
+router.get('/default', async (req, res, next) => {
   try {
     const theme = await getDefaultTheme(prisma);
     res.json(theme ? parseTheme(theme) : { ...DEFAULT_THEME });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 
 // GET /api/themes/:id
-router.get('/:id', async (req, res) => {
+router.get('/:id', async (req, res, next) => {
   try {
     const theme = await prisma.theme.findUnique({ where: { id: parseInt(req.params.id, 10) } });
     if (!theme) return res.status(404).json({ error: 'Theme not found' });
     res.json(parseTheme(theme));
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 
 // POST /api/themes (protected, admin)
-router.post('/', auth, requireRole('admin'), async (req, res) => {
+router.post('/', auth, requireRole('admin'), async (req, res, next) => {
   const errors = validateThemeInput(req.body);
   if (errors.length > 0) return res.status(400).json({ error: errors.join('; ') });
 
@@ -58,12 +58,12 @@ router.post('/', auth, requireRole('admin'), async (req, res) => {
     res.status(201).json(parseTheme(theme));
   } catch (err) {
     if (err.code === 'P2002') return res.status(409).json({ error: 'A theme with this name already exists' });
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 
 // PUT /api/themes/:id (protected, admin)
-router.put('/:id', auth, requireRole('admin'), async (req, res) => {
+router.put('/:id', auth, requireRole('admin'), async (req, res, next) => {
   const id = parseInt(req.params.id, 10);
   const errors = validateThemeInput(req.body);
   if (errors.length > 0) return res.status(400).json({ error: errors.join('; ') });
@@ -82,12 +82,12 @@ router.put('/:id', auth, requireRole('admin'), async (req, res) => {
   } catch (err) {
     if (err.code === 'P2025') return res.status(404).json({ error: 'Theme not found' });
     if (err.code === 'P2002') return res.status(409).json({ error: 'A theme with this name already exists' });
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 
 // DELETE /api/themes/:id (protected, admin)
-router.delete('/:id', auth, requireRole('admin'), async (req, res) => {
+router.delete('/:id', auth, requireRole('admin'), async (req, res, next) => {
   const id = parseInt(req.params.id, 10);
   try {
     const theme = await prisma.theme.findUnique({ where: { id } });
@@ -100,7 +100,7 @@ router.delete('/:id', auth, requireRole('admin'), async (req, res) => {
     res.status(204).end();
   } catch (err) {
     if (err.code === 'P2025') return res.status(404).json({ error: 'Theme not found' });
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 

@@ -28,7 +28,7 @@ async function registerGuard(req, res, next) {
   });
 }
 
-router.post('/register', registerGuard, async (req, res) => {
+router.post('/register', registerGuard, async (req, res, next) => {
   const { name, email, password, role } = req.body;
   const isBootstrap = !req.user;
 
@@ -79,12 +79,12 @@ router.post('/register', registerGuard, async (req, res) => {
       refreshToken,
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 
 // POST /api/auth/login
-router.post('/login', async (req, res) => {
+router.post('/login', async (req, res, next) => {
   const { email, password } = req.body;
 
   if (!email || typeof email !== 'string' || !email.includes('@')) {
@@ -122,12 +122,12 @@ router.post('/login', async (req, res) => {
       refreshToken,
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 
 // POST /api/auth/refresh
-router.post('/refresh', async (req, res) => {
+router.post('/refresh', async (req, res, next) => {
   const { refreshToken } = req.body;
 
   if (!refreshToken || typeof refreshToken !== 'string') {
@@ -138,7 +138,7 @@ router.post('/refresh', async (req, res) => {
     const result = await rotateRefreshToken(refreshToken);
     res.json(result);
   } catch (err) {
-    res.status(err.status || 500).json({ error: err.message });
+    next(err);
   }
 });
 

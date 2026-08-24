@@ -27,7 +27,7 @@ function statusToAvailable(status) {
 const VALID_STATUSES = ['available', 'out_of_stock', 'archived'];
 
 // GET /api/menu  OR  ?id=  ?category=  ?categoryId=  ?status=  ?tag=  ?includeArchived=1
-router.get('/', async (req, res) => {
+router.get('/', async (req, res, next) => {
   const { id, category, categoryId, status, tag, includeArchived } = req.query;
   try {
     if (id) {
@@ -57,12 +57,12 @@ router.get('/', async (req, res) => {
     });
     res.json(items.map(parseItem));
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 
 // GET /api/menu/:id
-router.get('/:id', async (req, res) => {
+router.get('/:id', async (req, res, next) => {
   try {
     const item = await prisma.menuItem.findUnique({
       where: { id: parseInt(req.params.id) },
@@ -71,12 +71,12 @@ router.get('/:id', async (req, res) => {
     if (!item) return res.status(404).json({ error: 'Item not found' });
     res.json(parseItem(item));
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 
 // POST /api/menu (protected)
-router.post('/', auth, requireRole('admin'), async (req, res) => {
+router.post('/', auth, requireRole('admin'), async (req, res, next) => {
   const { name, description, price, categoryId, imageUrl, images, tags, status, order } = req.body;
 
   if (!name || typeof name !== 'string' || name.trim().length === 0) {
@@ -119,12 +119,12 @@ router.post('/', auth, requireRole('admin'), async (req, res) => {
     });
     res.status(201).json(parseItem(newItem));
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 
 // POST /api/menu/:id/duplicate (protected)
-router.post('/:id/duplicate', auth, requireRole('admin'), async (req, res) => {
+router.post('/:id/duplicate', auth, requireRole('admin'), async (req, res, next) => {
   const id = parseInt(req.params.id);
   try {
     const source = await prisma.menuItem.findUnique({ where: { id } });
@@ -152,12 +152,12 @@ router.post('/:id/duplicate', auth, requireRole('admin'), async (req, res) => {
     });
     res.status(201).json(parseItem(dup));
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 
 // PATCH /api/menu/:id/archive (protected) — soft delete
-router.patch('/:id/archive', auth, requireRole('admin'), async (req, res) => {
+router.patch('/:id/archive', auth, requireRole('admin'), async (req, res, next) => {
   const id = parseInt(req.params.id);
   try {
     const item = await prisma.menuItem.findUnique({ where: { id } });
@@ -170,12 +170,12 @@ router.patch('/:id/archive', auth, requireRole('admin'), async (req, res) => {
     });
     res.json(parseItem(updated));
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 
 // PATCH /api/menu/:id/status (protected) — quick toggle
-router.patch('/:id/status', auth, requireRole('admin'), async (req, res) => {
+router.patch('/:id/status', auth, requireRole('admin'), async (req, res, next) => {
   const id = parseInt(req.params.id);
   const { status } = req.body;
 
@@ -194,12 +194,12 @@ router.patch('/:id/status', auth, requireRole('admin'), async (req, res) => {
     if (err.code === 'P2025') {
       return res.status(404).json({ error: 'Item not found' });
     }
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 
 // PUT /api/menu/reorder (protected) — batch update order within a category
-router.put('/reorder', auth, requireRole('admin'), async (req, res) => {
+router.put('/reorder', auth, requireRole('admin'), async (req, res, next) => {
   const { categoryId, ids } = req.body;
 
   if (!Array.isArray(ids) || ids.length === 0) {
@@ -222,12 +222,12 @@ router.put('/reorder', auth, requireRole('admin'), async (req, res) => {
     });
     res.json(items.map(parseItem));
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 
 // PUT /api/menu/:id (protected)
-router.put('/:id', auth, requireRole('admin'), async (req, res) => {
+router.put('/:id', auth, requireRole('admin'), async (req, res, next) => {
   const { name, description, price, imageUrl, images, tags, categoryId, status, order } = req.body;
   const id = parseInt(req.params.id);
 
@@ -275,12 +275,12 @@ router.put('/:id', auth, requireRole('admin'), async (req, res) => {
     if (err.code === 'P2025') {
       return res.status(404).json({ error: 'Item not found' });
     }
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 
 // DELETE /api/menu/:id (protected) — physical delete (legacy; prefer PATCH /archive)
-router.delete('/:id', auth, requireRole('admin'), async (req, res) => {
+router.delete('/:id', auth, requireRole('admin'), async (req, res, next) => {
   const id = parseInt(req.params.id);
   try {
     const item = await prisma.menuItem.findUnique({ where: { id } });
@@ -289,7 +289,7 @@ router.delete('/:id', auth, requireRole('admin'), async (req, res) => {
     await prisma.menuItem.delete({ where: { id } });
     res.status(204).end();
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 
