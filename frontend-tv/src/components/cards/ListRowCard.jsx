@@ -6,7 +6,9 @@ import QtyBadge from '../primitives/QtyBadge.jsx'
 import { badgeStyleOf, currencyOf } from '../../theme/designTokens'
 
 // list-row-price-qty template: thumbnail — name — qty badge — right-aligned
-// price (Extras/Desserts style).
+// price (Extras/Desserts style). Name forced uppercase — the reference rows
+// ("TEDNERS", "WINGS") are always solid caps regardless of how it was typed
+// into the admin, unlike a MenuItem's own display casing elsewhere.
 export default function ListRowCard({
   item,
   theme,
@@ -44,7 +46,7 @@ export default function ListRowCard({
         )}
       </div>
       <span
-        className={`min-w-0 flex-1 font-menu-body font-semibold text-menu-text ${ts.media ? 'text-center' : ''}`}
+        className={`min-w-0 flex-1 font-menu-body font-semibold uppercase text-menu-text ${ts.media ? 'text-center' : ''}`}
         style={{ fontSize }}
       >
         {name}

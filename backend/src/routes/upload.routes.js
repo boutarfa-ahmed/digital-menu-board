@@ -7,23 +7,25 @@ const cloudinaryService = require('../services/cloudinaryService');
 const storage = multer.memoryStorage();
 const upload = multer({ storage });
 
-router.post('/', auth, upload.single('image'), async (req, res) => {
+router.post('/', auth, upload.single('image'), async (req, res, next) => {
   try {
     const { itemId } = req.body;
     const result = await cloudinaryService.uploadImage(req.file, itemId);
     res.json(result);
   } catch (err) {
-    const status = err.message.startsWith('No image') || err.message.startsWith('Invalid') || err.message.startsWith('File too') ? 400 : 500;
-    res.status(status).json({ error: err.message });
+    const isValidationError = err.message.startsWith('No image') || err.message.startsWith('Invalid') || err.message.startsWith('File too');
+    if (isValidationError) return res.status(400).json({ error: err.message });
+    next(err);
   }
 });
 
-router.delete('/:public_id', auth, async (req, res) => {
+router.delete('/:public_id', auth, async (req, res, next) => {
   try {
     await cloudinaryService.deleteImage(req.params.public_id);
     res.status(204).end();
   } catch (err) {
-    res.status(err.message === 'No public_id provided' ? 400 : 500).json({ error: err.message });
+    if (err.message === 'No public_id provided') return res.status(400).json({ error: err.message });
+    next(err);
   }
 });
 

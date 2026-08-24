@@ -1,0 +1,73 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-galaxyfood}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required — copy .env.example to .env and set one}
+      POSTGRES_DB: ${POSTGRES_DB:-galaxyfood}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      # 5433, not 5432: this machine already runs a native postgresql.service
+      # on the default port. Published so `prisma migrate dev` and `npm run
+      # seed` can target this same database from the host (outside the
+      # backend container). Bound to 127.0.0.1: reachable from this machine
+      # (local dev, ad-hoc `psql`) but not from the network — on a real
+      # server, "5433:5432" alone would let anyone on the internet who finds
+      # the port talk to Postgres directly, bypassing the app entirely.
+      - "127.0.0.1:5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-galaxyfood} -d ${POSTGRES_DB:-galaxyfood}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # Reuses backend/.env for JWT secrets, CORS_ORIGINS, etc. (same file
+    # `npm run dev` reads locally). DATABASE_URL below deliberately overrides
+    # whatever is in that file — locally it points at sqlite/localhost,
+    # inside compose it must resolve the `postgres` service by its DNS name.
+    env_file:
+      - ./backend/.env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-galaxyfood}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-galaxyfood}
+    ports:
+      # Bound to 127.0.0.1 for local debugging (curl/Postman straight to the
+      # API, no TLS ceremony) without exposing the API on the network — Caddy
+      # reaches it over the compose network regardless, so nothing loses
+      # access by this being localhost-only.
+      - "127.0.0.1:5000:5000"
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+
+  frontend-tv:
+    build: ./frontend-tv
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - backend
+      - frontend
+      - frontend-tv
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:

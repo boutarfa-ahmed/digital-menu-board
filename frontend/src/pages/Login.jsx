@@ -20,7 +20,7 @@ function Login() {
 
     try {
       const { data } = await api.post('/auth/login', { email, password })
-      login(data.user, data.token)
+      login(data.user, data.token, data.refreshToken)
       window.location.href = '/dashboard'
     } catch (err) {
       setError(err.response?.data?.error || 'Échec de la connexion')

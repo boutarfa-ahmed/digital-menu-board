@@ -112,6 +112,9 @@ const BACKGROUND_PATTERNS = ['none', 'torn-paper'];
 const BACKGROUND_ANGLE_MAX = 180;
 const ELEMENT_TYPES = ['image', 'text', 'logo'];
 const ELEMENT_KINDS = ['plain', 'banner', 'hero', 'divider', 'price'];
+// The two price-badge designs (frontend-tv/src/theme/designTokens.js). Kept in
+// sync by hand — a bad value here would render an undefined style on the TV.
+const BADGE_TYPES = ['type1', 'type2'];
 const FONT_SIZE_MAX_TEXT = 200;
 
 // T7.6: screen-level background — split (dark/light 50-50, configurable angle)
@@ -168,6 +171,9 @@ function validateBackgroundStyle(style) {
     if (typeof style.bgImage !== 'string' || style.bgImage.trim() === '') {
       errors.push('backgroundStyle.bgImage must be a non-empty string or null');
     }
+  }
+  if (style.badgeType !== undefined && !BADGE_TYPES.includes(style.badgeType)) {
+    errors.push(`backgroundStyle.badgeType must be one of ${BADGE_TYPES.join(', ')}`);
   }
   if (style.fontSize !== undefined) {
     const n = Number(style.fontSize);
@@ -232,6 +238,9 @@ function validateElementsConfig(elements) {
     }
     if (el.dark !== undefined && typeof el.dark !== 'boolean') {
       errors.push(`${p}.dark must be a boolean`);
+    }
+    if (el.badgeType !== undefined && !BADGE_TYPES.includes(el.badgeType)) {
+      errors.push(`${p}.badgeType must be one of ${BADGE_TYPES.join(', ')}`);
     }
     if (el.accent !== undefined && !HEX_OR_CSS_COLOR.test(String(el.accent).trim())) {
       errors.push(`${p}.accent must be a valid color`);

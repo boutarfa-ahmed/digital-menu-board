@@ -11,7 +11,7 @@ import ZoneBadge from '../ui/ZoneBadge.jsx'
 import { accentOf, cardFields, templateStyle } from '../cards/cardUtils.js'
 import PriceBadge from '../primitives/PriceBadge.jsx'
 import TierPricingHeader from '../primitives/TierPricingHeader.jsx'
-import { badgeStyleOf, currencyOf } from '../../theme/designTokens'
+import { badgeStyleOf, currencyOf, badgeTypeOf } from '../../theme/designTokens'
 
 function bannerSizeOf(fontSize) {
   if (!fontSize) return undefined
@@ -20,27 +20,50 @@ function bannerSizeOf(fontSize) {
   return 'lg'
 }
 
-function ZoneTitle({ name, accent, banner, extraPrice, theme, fontSize }) {
+function ZoneTitle({ name, accent, banner, extraPrice, badgeType, theme, fontSize }) {
   if (!name) return null
   const scale = fontSize ? fontSize / 12 : 1
-  const title = banner
-    ? <CategoryBanner label={name} accent={accent} size={bannerSizeOf(fontSize)} />
-    : (
-      <h2
-        className="font-menu-header uppercase leading-tight tracking-wide"
-        style={{ color: accent, fontSize: Math.round(34 * scale) }}
-      >
-        {name}
-      </h2>
-    )
   const showExtra = Number.isFinite(extraPrice) && extraPrice > 0
-  if (!showExtra) {
-    return <div className="mb-6">{title}</div>
+
+  if (banner) {
+    const title = <CategoryBanner label={name} accent={accent} size={bannerSizeOf(fontSize)} />
+    if (!showExtra) return <div className="mb-6">{title}</div>
+    return (
+      <div className="mb-6 flex items-center gap-3">
+        {title}
+        <PriceBadge price={extraPrice} size="sm" badgeStyle={badgeStyleOf(theme)} currency={currencyOf(theme)} badgeType={badgeTypeOf(badgeType)} />
+      </div>
+    )
+  }
+
+  // Elegant italic divider — the "Meat" / "Sauces" / "Extra" treatment from
+  // the reference boards: title case (not uppercase), Playfair Display
+  // italic, flanked by thin rules spanning the zone width. A price tag
+  // replaces the right-hand rule when the zone carries an "Extra" price,
+  // matching how the reference attaches the tag to the divider rather than
+  // centering the title alone.
+  const title = (
+    <h2
+      className="font-menu-accent italic font-semibold leading-tight"
+      style={{ color: accent, fontSize: Math.round(34 * scale) }}
+    >
+      {name}
+    </h2>
+  )
+
+  if (showExtra) {
+    return (
+      <div className="mb-6 flex items-center gap-3">
+        {title}
+        <PriceBadge price={extraPrice} size="sm" badgeStyle={badgeStyleOf(theme)} currency={currencyOf(theme)} badgeType={badgeTypeOf(badgeType)} />
+      </div>
+    )
   }
   return (
-    <div className="mb-6 flex items-center gap-3">
+    <div className="mb-6 flex items-center gap-4">
+      <span className="h-px flex-1" style={{ background: accent, opacity: 0.35 }} />
       {title}
-      <PriceBadge price={extraPrice} size="sm" badgeStyle={badgeStyleOf(theme)} currency={currencyOf(theme)} />
+      <span className="h-px flex-1" style={{ background: accent, opacity: 0.35 }} />
     </div>
   )
 }
@@ -168,7 +191,7 @@ function ListContent({ zone, theme, settings }) {
   )
 }
 
-function BannerContent({ zone, theme, settings, accent, fontSize }) {
+function BannerContent({ zone, theme, settings, accent, fontSize, badgeType }) {
   const first = zone.items?.[0]
   const showPrice = settings?.showPrices !== false
   const scale = fontSize ? fontSize / 12 : 1
@@ -184,6 +207,7 @@ function BannerContent({ zone, theme, settings, accent, fontSize }) {
           tiers={zone.badgeConfig.tiers}
           badgeStyle={badgeStyleOf(theme)}
           currency={currencyOf(theme)}
+          badgeType={badgeTypeOf(badgeType)}
         />
       </div>
     )
@@ -241,18 +265,18 @@ export default function ZoneRenderer({ zone, theme, settings }) {
 
   let content
   if (isBanner) {
-    content = <BannerContent zone={zone} theme={theme} settings={settings} accent={accent} fontSize={zStyle.fontSize} />
+    content = <BannerContent zone={zone} theme={theme} settings={settings} accent={accent} fontSize={zStyle.fontSize} badgeType={zStyle.badgeType} />
   } else if (isGrid) {
     content = (
       <div className="flex h-full flex-col">
-        <ZoneTitle name={zone.name} accent={accent} extraPrice={zone.backgroundStyle?.extraPrice} theme={theme} banner={zone.backgroundStyle?.banner} fontSize={zStyle.fontSize} />
+        <ZoneTitle name={zone.name} accent={accent} extraPrice={zone.backgroundStyle?.extraPrice} badgeType={zStyle.badgeType} theme={theme} banner={zone.backgroundStyle?.banner} fontSize={zStyle.fontSize} />
         <GridContent zone={zone} theme={theme} />
       </div>
     )
   } else if (isList) {
     content = (
       <div className="flex h-full flex-col">
-        <ZoneTitle name={zone.name} accent={accent} extraPrice={zone.backgroundStyle?.extraPrice} theme={theme} banner={zone.backgroundStyle?.banner} fontSize={zStyle.fontSize} />
+        <ZoneTitle name={zone.name} accent={accent} extraPrice={zone.backgroundStyle?.extraPrice} badgeType={zStyle.badgeType} theme={theme} banner={zone.backgroundStyle?.banner} fontSize={zStyle.fontSize} />
         <ListContent zone={zone} theme={theme} settings={settings} />
       </div>
     )
@@ -260,7 +284,7 @@ export default function ZoneRenderer({ zone, theme, settings }) {
     // highlight / unknown: zone name + first item as image-title-desc card
     content = (
       <div className="flex h-full flex-col justify-center gap-4">
-        <ZoneTitle name={zone.name} accent={accent} extraPrice={zone.backgroundStyle?.extraPrice} theme={theme} banner={zone.backgroundStyle?.banner} fontSize={zStyle.fontSize} />
+        <ZoneTitle name={zone.name} accent={accent} extraPrice={zone.backgroundStyle?.extraPrice} badgeType={zStyle.badgeType} theme={theme} banner={zone.backgroundStyle?.banner} fontSize={zStyle.fontSize} />
         {zone.items?.[0] ? (
           <ImageTitleDescPriceCard
             item={zone.items[0].item}

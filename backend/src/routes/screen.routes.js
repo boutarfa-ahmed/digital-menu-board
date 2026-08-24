@@ -48,7 +48,7 @@ function withStatus(screen) {
 }
 
 // GET /api/screens
-router.get('/', async (req, res) => {
+router.get('/', async (req, res, next) => {
   try {
     const screens = await prisma.screen.findMany({
       orderBy: { id: 'asc' },
@@ -58,7 +58,7 @@ router.get('/', async (req, res) => {
     });
     res.json(screens.map((s) => withStatus(parseLayout(s))));
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 
@@ -68,7 +68,7 @@ router.get('/templates', async (req, res) => {
 });
 
 // GET /api/screens/:id
-router.get('/:id', async (req, res) => {
+router.get('/:id', async (req, res, next) => {
   try {
     const screen = await prisma.screen.findUnique({
       where: { id: parseInt(req.params.id) },
@@ -77,12 +77,12 @@ router.get('/:id', async (req, res) => {
     if (!screen) return res.status(404).json({ error: 'Screen not found' });
     res.json(withStatus(parseLayout(screen)));
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 
 // POST /api/screens (protected, admin)
-router.post('/', auth, requireRole('admin'), async (req, res) => {
+router.post('/', auth, requireRole('admin'), async (req, res, next) => {
   const { name, location, layout } = req.body;
 
   if (!name || typeof name !== 'string' || name.trim().length === 0) {
@@ -99,12 +99,12 @@ router.post('/', auth, requireRole('admin'), async (req, res) => {
     });
     res.status(201).json(withStatus(parseLayout(screen)));
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 
 // PUT /api/screens/:id (protected, admin)
-router.put('/:id', auth, requireRole('admin'), async (req, res) => {
+router.put('/:id', auth, requireRole('admin'), async (req, res, next) => {
   const { name, location, layout, status } = req.body;
   const id = parseInt(req.params.id);
 
@@ -127,7 +127,7 @@ router.put('/:id', auth, requireRole('admin'), async (req, res) => {
     res.json(withStatus(parseLayout(screen)));
   } catch (err) {
     if (err.code === 'P2025') return res.status(404).json({ error: 'Screen not found' });
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 
@@ -148,7 +148,7 @@ router.get('/:id/layout', async (req, res, next) => {
     return auth(req, res, () => requireRole('admin')(req, res, () => next()));
   }
   return next();
-}, async (req, res) => {
+}, async (req, res, next) => {
   const id = parseInt(req.params.id, 10);
   const isPreview = req.query.preview === '1';
   try {
@@ -174,12 +174,12 @@ router.get('/:id/layout', async (req, res, next) => {
     const theme = await resolveLayoutTheme(prisma, shaped);
     res.json({ ...parseZoneLayout(shaped), theme });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 
 // POST /api/screens/:id/layout — create a new (draft) zone-based layout
-router.post('/:id/layout', auth, requireRole('admin'), async (req, res) => {
+router.post('/:id/layout', auth, requireRole('admin'), async (req, res, next) => {
   const id = parseInt(req.params.id, 10);
   try {
     const screen = await prisma.screen.findUnique({ where: { id } });
@@ -213,12 +213,12 @@ router.post('/:id/layout', auth, requireRole('admin'), async (req, res) => {
     const theme = await resolveLayoutTheme(prisma, layout);
     res.status(201).json({ ...parseZoneLayout(layout), theme });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 
 // POST /api/screens/:id/layout/publish — mark the layout as published (goes live on TV)
-router.post('/:id/layout/publish', auth, requireRole('admin'), async (req, res) => {
+router.post('/:id/layout/publish', auth, requireRole('admin'), async (req, res, next) => {
   const id = parseInt(req.params.id, 10);
   try {
     const layout = await prisma.screenLayout.findUnique({
@@ -245,7 +245,7 @@ router.post('/:id/layout/publish', auth, requireRole('admin'), async (req, res) 
     broadcast({ type: 'layout:published', screenId: id, timestamp: Date.now() });
     res.json({ ...parseZoneLayout({ ...published, zones: layout.zones }), theme });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 
@@ -253,7 +253,7 @@ router.post('/:id/layout/publish', auth, requireRole('admin'), async (req, res) 
 // Zone-based: body { name?, settings?, zones: [...] } -> single transaction for the whole layout.
 // Settings-only: body { settings } (e.g. screen background) keeps existing zones.
 // Legacy: body { template, rows, cols, cells, settings } (Phase 6 grid builder).
-router.put('/:id/layout', auth, requireRole('admin'), async (req, res) => {
+router.put('/:id/layout', auth, requireRole('admin'), async (req, res, next) => {
   const id = parseInt(req.params.id, 10);
 
   const isZonePayload = req.body && Array.isArray(req.body.zones);
@@ -280,7 +280,7 @@ router.put('/:id/layout', auth, requireRole('admin'), async (req, res) => {
       if (err.name === 'ZoneValidationError') return res.status(400).json({ error: err.message });
       if (err.code === 'P2025') return res.status(404).json({ error: 'Screen not found' });
       if (err.code === 'P2003') return res.status(400).json({ error: 'Invalid itemId in zones' });
-      res.status(500).json({ error: err.message });
+      next(err);
     }
     return;
   }
@@ -296,12 +296,12 @@ router.put('/:id/layout', auth, requireRole('admin'), async (req, res) => {
     res.json(withStatus(parseLayout(screen)));
   } catch (err) {
     if (err.code === 'P2025') return res.status(404).json({ error: 'Screen not found' });
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 
 // DELETE /api/screens/:id (protected, admin)
-router.delete('/:id', auth, requireRole('admin'), async (req, res) => {
+router.delete('/:id', auth, requireRole('admin'), async (req, res, next) => {
   const id = parseInt(req.params.id);
   try {
     const screen = await prisma.screen.findUnique({ where: { id } });
@@ -310,12 +310,12 @@ router.delete('/:id', auth, requireRole('admin'), async (req, res) => {
     await prisma.screen.delete({ where: { id } });
     res.status(204).end();
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 
 // POST /api/screens/:id/ping  (called by the TV client)
-router.post('/:id/ping', async (req, res) => {
+router.post('/:id/ping', async (req, res, next) => {
   const id = parseInt(req.params.id);
   try {
     const screen = await prisma.screen.update({
@@ -327,13 +327,13 @@ router.post('/:id/ping', async (req, res) => {
     if (err.code === 'P2025') {
       return res.status(404).json({ error: 'Screen not found' });
     }
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 
 // PUT /api/screens/:id/assignments (protected, admin)
 // body: { categoryIds: number[], itemIds: number[] }
-router.put('/:id/assignments', auth, requireRole('admin'), async (req, res) => {
+router.put('/:id/assignments', auth, requireRole('admin'), async (req, res, next) => {
   const id = parseInt(req.params.id);
   const { categoryIds = [], itemIds = [] } = req.body;
 
@@ -365,7 +365,7 @@ router.put('/:id/assignments', auth, requireRole('admin'), async (req, res) => {
     if (err.code === 'P2025') {
       return res.status(400).json({ error: 'Invalid categoryId or itemId' });
     }
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 

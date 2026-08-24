@@ -56,6 +56,14 @@ const ELEMENT_KIND_LABELS = {
   price: 'Badge prix',
 }
 
+// Les deux designs de badge prix (frontend-tv/src/theme/designTokens.js).
+// Indépendant du couple sombre/clair : 2 types x 2 fonds = 4 rendus.
+const BADGE_TYPES = ['type1', 'type2']
+const BADGE_TYPE_LABELS = {
+  type1: 'Type 1 — sticker',
+  type2: 'Type 2 — ticket déchiré',
+}
+
 // T7.3 — zone badge/label config (plain JSON on the zone)
 const BADGE_STYLES = ['torn-paper', 'ribbon', 'circle-stamp']
 const BADGE_STYLE_LABELS = {
@@ -105,55 +113,38 @@ const PAPER_GRAIN = `url("data:image/svg+xml,${encodeURIComponent(
   "<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='matrix' values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0.9 0.9 0.9 0.55 0'/></filter><rect width='140' height='140' filter='url(#n)'/></svg>"
 )}")`
 
-// Mirrors frontend-tv/src/components/ui/ZoneSeams.jsx's generator exactly
-// (same seed defaults) so the "Fond" dialog preview matches the TV render.
-function mulberry32Bg(seed) {
-  return function () {
-    let t = (seed += 0x6d2b79f5)
-    t = Math.imul(t ^ (t >>> 15), t | 1)
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
-  }
-}
-function tornEdgePointsBg(rand, length, segments, depth) {
-  const pts = []
-  for (let i = 0; i <= segments; i++) {
-    const pos = (i / segments) * length
-    let d = Math.pow(rand(), 1.6) * depth
-    if (rand() < 0.16) d += depth * (0.5 + rand() * 0.5)
-    pts.push([pos, d])
-  }
-  return pts
-}
-function tornStripDataUri(color, seed = 1, length = 64, thickness = 36) {
-  const rand = mulberry32Bg(seed)
-  const segs = 22
-  const depth = thickness * 0.34
-  const top = tornEdgePointsBg(rand, length, segs, depth)
-  const bottom = tornEdgePointsBg(rand, length, segs, depth)
-  const topPts = top.map(([x, d]) => `${x.toFixed(1)} ${d.toFixed(1)}`).join(' L')
-  const botPts = bottom
-    .map(([x, d]) => `${x.toFixed(1)} ${(thickness - d).toFixed(1)}`)
+// Traced from a licensed torn-paper reference (Vecteezy #1222320) — same
+// fixed points as frontend-tv/src/components/ui/ZoneSeams.jsx, so the "Fond"
+// dialog preview matches the TV render exactly. Keep both copies in sync;
+// the two apps share no module to import from.
+const TORN_TILE_LEN = 220
+const TORN_THICKNESS = 40
+
+// prettier-ignore
+const TORN_TOP = [[0.0,4.9],[2.4,5.4],[4.9,5.6],[7.3,8.2],[9.8,10.5],[12.2,12.0],[14.7,12.6],[17.1,12.6],[19.6,12.0],[22.0,10.8],[24.4,10.3],[26.9,11.1],[29.3,11.6],[31.8,11.8],[34.2,11.8],[36.7,11.5],[39.1,10.8],[41.6,9.8],[44.0,9.5],[46.4,9.7],[48.9,10.2],[51.3,10.7],[53.8,11.0],[56.2,11.0],[58.7,10.3],[61.1,10.0],[63.6,10.2],[66.0,10.0],[68.4,9.7],[70.9,9.3],[73.3,9.3],[75.8,9.5],[78.2,10.0],[80.7,9.8],[83.1,9.5],[85.6,9.2],[88.0,9.3],[90.4,10.7],[92.9,11.5],[95.3,10.8],[97.8,10.2],[100.2,10.3],[102.7,12.1],[105.1,13.3],[107.6,13.6],[110.0,13.4],[112.4,12.6],[114.9,11.8],[117.3,11.0],[119.8,11.0],[122.2,10.5],[124.7,9.5],[127.1,8.4],[129.6,7.2],[132.0,6.2],[134.4,5.4],[136.9,4.6],[139.3,3.8],[141.8,2.9],[144.2,2.1],[146.7,1.8],[149.1,1.5],[151.6,1.5],[154.0,0.8],[156.4,0.3],[158.9,0.0],[161.3,0.0],[163.8,0.3],[166.2,0.8],[168.7,0.8],[171.1,0.0],[173.6,0.3],[176.0,1.6],[178.4,3.1],[180.9,3.4],[183.3,3.4],[185.8,3.8],[188.2,4.3],[190.7,5.1],[193.1,5.1],[195.6,4.9],[198.0,4.4],[200.4,3.9],[202.9,3.6],[205.3,3.4],[207.8,3.8],[210.2,4.8],[212.7,5.4],[215.1,5.7],[217.6,5.6],[220.0,5.1]]
+
+// prettier-ignore
+const TORN_BOTTOM = [[0.0,3.7],[2.4,3.7],[4.9,3.2],[7.3,5.5],[9.8,6.4],[12.2,7.1],[14.7,9.4],[17.1,10.9],[19.6,11.1],[22.0,10.2],[24.4,9.9],[26.9,12.1],[29.3,11.0],[31.8,11.6],[34.2,12.8],[36.7,13.6],[39.1,13.4],[41.6,12.6],[44.0,12.2],[46.4,12.4],[48.9,12.9],[51.3,13.6],[53.8,11.6],[56.2,10.1],[58.7,12.2],[61.1,11.7],[63.6,9.6],[66.0,7.7],[68.4,6.9],[70.9,7.6],[73.3,8.1],[75.8,7.5],[78.2,7.4],[80.7,7.7],[83.1,8.4],[85.6,10.9],[88.0,11.6],[90.4,11.1],[92.9,9.7],[95.3,8.3],[97.8,8.3],[100.2,8.9],[102.7,9.3],[105.1,9.1],[107.6,10.1],[110.0,10.7],[112.4,7.8],[114.9,6.0],[117.3,5.5],[119.8,6.9],[122.2,6.5],[124.7,7.4],[127.1,8.1],[129.6,8.7],[132.0,8.9],[134.4,8.7],[136.9,8.0],[139.3,7.6],[141.8,8.2],[144.2,8.5],[146.7,8.3],[149.1,7.3],[151.6,5.6],[154.0,4.1],[156.4,3.9],[158.9,0.5],[161.3,2.1],[163.8,1.1],[166.2,1.4],[168.7,2.1],[171.1,2.0],[173.6,0.5],[176.0,0.0],[178.4,0.6],[180.9,2.0],[183.3,3.1],[185.8,4.2],[188.2,4.2],[190.7,3.9],[193.1,3.9],[195.6,4.1],[198.0,4.6],[200.4,5.1],[202.9,5.3],[205.3,4.9],[207.8,4.9],[210.2,4.3],[212.7,3.4],[215.1,2.9],[217.6,2.8],[220.0,3.6]]
+
+function tornStripDataUri(color) {
+  const topPts = TORN_TOP.map(([x, d]) => `${x} ${d}`).join(' L')
+  const botPts = TORN_BOTTOM
+    .map(([x, d]) => `${x} ${(TORN_THICKNESS - d).toFixed(1)}`)
     .reverse()
     .join(' L')
-  const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='${length}' height='${thickness}'><filter id='ds' x='-20%' y='-60%' width='140%' height='220%'><feDropShadow dx='0' dy='2' stdDeviation='1.6' flood-color='#000000' flood-opacity='0.3'/></filter><path filter='url(#ds)' d='M${topPts} L${botPts} Z' fill='${color}'/></svg>`
+  const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='${TORN_TILE_LEN}' height='${TORN_THICKNESS}'><filter id='ds' x='-20%' y='-60%' width='140%' height='220%'><feDropShadow dx='0' dy='2' stdDeviation='1.6' flood-color='#000000' flood-opacity='0.3'/></filter><path filter='url(#ds)' d='M${topPts} L${botPts} Z' fill='${color}'/></svg>`
   return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`
 }
 
 const gpt = (g) => `${(g * 100) / 12}%`
 
-function tornStripVDataUri(color, seed = 2, length = 64, thickness = 36) {
-  const rand = mulberry32Bg(seed)
-  const segs = 22
-  const depth = thickness * 0.34
-  const left = tornEdgePointsBg(rand, length, segs, depth)
-  const right = tornEdgePointsBg(rand, length, segs, depth)
-  const leftPts = left.map(([y, d]) => `${d.toFixed(1)} ${y.toFixed(1)}`).join(' L')
-  const rightPts = right
-    .map(([y, d]) => `${(thickness - d).toFixed(1)} ${y.toFixed(1)}`)
+function tornStripVDataUri(color) {
+  const leftPts = TORN_TOP.map(([y, d]) => `${d} ${y}`).join(' L')
+  const rightPts = TORN_BOTTOM
+    .map(([y, d]) => `${(TORN_THICKNESS - d).toFixed(1)} ${y}`)
     .reverse()
     .join(' L')
-  const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='${thickness}' height='${length}'><filter id='ds' x='-60%' y='-20%' width='220%' height='140%'><feDropShadow dx='2' dy='0' stdDeviation='1.6' flood-color='#000000' flood-opacity='0.3'/></filter><path filter='url(#ds)' d='M${leftPts} L${rightPts} Z' fill='${color}'/></svg>`
+  const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='${TORN_THICKNESS}' height='${TORN_TILE_LEN}'><filter id='ds' x='-60%' y='-20%' width='220%' height='140%'><feDropShadow dx='2' dy='0' stdDeviation='1.6' flood-color='#000000' flood-opacity='0.3'/></filter><path filter='url(#ds)' d='M${leftPts} L${rightPts} Z' fill='${color}'/></svg>`
   return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`
 }
 
@@ -220,7 +211,7 @@ function ZoneSeamMarkers({ zones, color = '#FFFFFF', seamsEnabled = true, hidden
             transform: 'translateX(-50%)',
             backgroundImage: tornStripVDataUri(color),
             backgroundRepeat: 'repeat-y',
-            backgroundSize: '8px 13px',
+            backgroundSize: '8px 44px',
             opacity: 0.9,
           }}
         />
@@ -239,7 +230,7 @@ function ZoneSeamMarkers({ zones, color = '#FFFFFF', seamsEnabled = true, hidden
             transform: 'translateY(-50%)',
             backgroundImage: tornStripDataUri(color),
             backgroundRepeat: 'repeat-x',
-            backgroundSize: '13px 8px',
+            backgroundSize: '44px 8px',
             opacity: 0.9,
           }}
         />
@@ -280,6 +271,89 @@ const BADGE_POS_PX = {
   'bottom-left': { bottom: 2, left: 2 },
   'bottom-center': { bottom: 2, left: '50%', translateX: true },
   'bottom-right': { bottom: 2, right: 2 },
+}
+
+// Sélecteur de design de badge prix. Rend une vraie miniature de chaque type
+// (mêmes découpes/couleurs que PriceBadge côté TV) pour que le choix se fasse
+// à l'œil plutôt que sur un nom. `dark` suit le fond déjà choisi, si bien que
+// l'aperçu montre exactement la combinaison type x fond qui partira à l'écran.
+// Copie du clip-path de PriceBadge (frontend-tv) : les deux apps ne partagent
+// pas de module, donc l'aperçu duplique la forme pour rester fidele au rendu.
+const BADGE_TYPE2_CLIP =
+  'polygon(0.0% 1.6%, 4.6% 8.7%, 8.0% 0.7%, 13.8% 8.9%, 16.7% 1.8%, 21.9% 8.2%, 26.0% 1.0%, 28.7% 7.5%, 31.7% 1.3%, 37.2% 6.5%, 41.1% 1.5%, 47.2% 8.0%, 53.4% 2.0%, 59.0% 6.3%, 62.9% 1.6%, 67.3% 8.0%, 72.7% 1.9%, 76.6% 7.5%, 80.7% 0.8%, 85.9% 6.0%, 88.9% 1.7%, 95.4% 5.7%, 100% 2.0%, 100.0% 98.8%, 95.3% 92.9%, 90.6% 97.9%, 87.2% 91.6%, 81.3% 98.1%, 78.6% 92.5%, 72.4% 99.1%, 68.7% 93.5%, 64.9% 97.5%, 59.5% 92.3%, 55.2% 98.1%, 51.0% 91.5%, 46.0% 98.3%, 42.2% 90.6%, 37.3% 98.5%, 33.2% 92.5%, 29.1% 97.7%, 23.3% 91.8%, 17.6% 98.6%, 14.3% 91.6%, 8.7% 98.1%, 5.8% 91.5%, 1.5% 98.3%, 0% 98.0%)'
+
+const BADGE_TYPE1_CLIP =
+  'polygon(0% 0%, 2.4% 7%, 4.6% 1.5%, 8% 9%, 10.5% 2%, 14% 8%, 16.8% 0.5%, 20% 7%, 23% 2.5%,' +
+  '26.5% 9.5%, 29% 1.5%, 32.5% 7.5%, 35% 0%, 100% 0%, 100% 100%, 0% 100%)'
+
+function BadgeTypeThumb({ type, dark }) {
+  const isType2 = type === 'type2'
+  const bg = dark ? '#0D0D0D' : '#FFFFFF'
+  const ink = dark ? '#FFFFFF' : '#1A1A1A'
+  // Type 1 tinte les centimes en accent, type 2 les garde dans la même encre.
+  const cents = isType2 ? ink : '#FF6B00'
+  return (
+    <span
+      className="inline-block"
+      style={{ filter: isType2 ? 'drop-shadow(0 3px 5px rgba(0,0,0,0.35))' : undefined }}
+    >
+      <span
+        className="inline-block font-bold leading-none"
+        style={{
+          background: bg,
+          color: ink,
+          padding: isType2 ? '7px 10px' : '4px 8px',
+          borderRadius: isType2 ? 0 : '6px 6px 2px 2px',
+          clipPath: isType2 ? BADGE_TYPE2_CLIP : BADGE_TYPE1_CLIP,
+          border: !isType2 && !dark ? '2px solid #0D0D0D' : undefined,
+        }}
+      >
+        <span style={{ fontSize: 17 }}>12</span>
+        <span style={{ fontSize: 10, color: cents, verticalAlign: 'super' }}>,90</span>
+        <span style={{ fontSize: 11 }}>CHF</span>
+      </span>
+    </span>
+  )
+}
+
+function BadgeTypePicker({ value, dark, onChange }) {
+  const active = BADGE_TYPES.includes(value) ? value : 'type1'
+  return (
+    <div>
+      <Label>Type de badge</Label>
+      <div className="grid grid-cols-2 gap-1.5">
+        {BADGE_TYPES.map((t) => (
+          <button
+            key={t}
+            type="button"
+            onClick={() => onChange(t)}
+            title={BADGE_TYPE_LABELS[t]}
+            className={`flex flex-col items-center gap-2 rounded-lg border px-2 py-2.5 transition-colors ${
+              active === t
+                ? 'border-brand-500 bg-brand-50 dark:bg-brand-500/15'
+                : 'border-gray-200 hover:border-brand-300 dark:border-gray-700'
+            }`}
+          >
+            <span
+              className="flex h-11 w-full items-center justify-center rounded"
+              style={{ background: dark ? '#F1F1F1' : '#2A2A2A' }}
+            >
+              <BadgeTypeThumb type={t} dark={dark} />
+            </span>
+            <span
+              className={`text-[11px] font-medium ${
+                active === t
+                  ? 'text-brand-600 dark:text-brand-400'
+                  : 'text-gray-500 dark:text-gray-400'
+              }`}
+            >
+              {BADGE_TYPE_LABELS[t]}
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
+  )
 }
 
 function ZoneBadgePreview({ config, accent }) {
@@ -2376,6 +2450,14 @@ function ScreenLayoutCanvas() {
                       </p>
                     </div>
 
+                    {/* Vaut pour le prix Extra ET pour les paliers (1/2/3 viandes)
+                        rendus par TierPricingHeader dans une zone bannière. */}
+                    <BadgeTypePicker
+                      value={styleCfg.badgeType}
+                      dark={styleCfg.dark !== false}
+                      onChange={(t) => patchStyle({ badgeType: t })}
+                    />
+
                     <div>
                       <Label htmlFor="zone-style-badge">Style du badge</Label>
                       <select
@@ -2624,6 +2706,14 @@ function ScreenLayoutCanvas() {
                                 </button>
                               </div>
                             </div>
+                          )}
+
+                          {(selectedElement.kind || 'plain') === 'price' && (
+                            <BadgeTypePicker
+                              value={selectedElement.badgeType}
+                              dark={selectedElement.dark !== false}
+                              onChange={(t) => patchElementById(selectedElement.id, { badgeType: t })}
+                            />
                           )}
 
                           {/* Accent only drives banner elements — hero titles and

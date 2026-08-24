@@ -3,6 +3,16 @@
 // declared in src/index.css. When no theme is provided the CSS defaults apply.
 export const BADGE_STYLES = ['torn-paper', 'rounded', 'ribbon']
 
+// The two price-badge designs. 'type1' is the original Galaxy Food sticker,
+// 'type2' the torn strip used on the reference menu boards. Independent of
+// BADGE_STYLES (shape) and of the sombre/clair variant (colour).
+export const BADGE_TYPES = ['type1', 'type2']
+export const DEFAULT_BADGE_TYPE = 'type1'
+
+export function badgeTypeOf(value) {
+  return BADGE_TYPES.includes(value) ? value : DEFAULT_BADGE_TYPE
+}
+
 // Theme colors JSON keys (backend) -> runtime CSS variable names
 const COLOR_MAP = {
   bgDark: '--menu-bg-dark',

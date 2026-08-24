@@ -32,7 +32,7 @@ function emitLayoutUpdated(screenId) {
 }
 
 // POST /api/layouts/:id/zones — add a zone to a layout
-router.post('/layouts/:id/zones', auth, requireRole('admin'), async (req, res) => {
+router.post('/layouts/:id/zones', auth, requireRole('admin'), async (req, res, next) => {
   const layoutId = parseInt(req.params.id, 10);
   const errors = validateZoneFields(req.body);
   if (errors.length > 0) return res.status(400).json({ error: errors.join('; ') });
@@ -62,12 +62,12 @@ router.post('/layouts/:id/zones', auth, requireRole('admin'), async (req, res) =
     emitLayoutUpdated(await screenIdOfLayout(layoutId));
     res.status(201).json(parseZone(zone));
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 
 // PUT /api/zones/:id — update zone config (gridConfig, cardTemplate, position, ...)
-router.put('/zones/:id', auth, requireRole('admin'), async (req, res) => {
+router.put('/zones/:id', auth, requireRole('admin'), async (req, res, next) => {
   const id = parseInt(req.params.id, 10);
   const errors = validateZoneFields(req.body);
   if (errors.length > 0) return res.status(400).json({ error: errors.join('; ') });
@@ -106,12 +106,12 @@ router.put('/zones/:id', auth, requireRole('admin'), async (req, res) => {
     res.json(parseZone(updated));
   } catch (err) {
     if (err.code === 'P2025') return res.status(404).json({ error: 'Zone not found' });
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 
 // DELETE /api/zones/:id
-router.delete('/zones/:id', auth, requireRole('admin'), async (req, res) => {
+router.delete('/zones/:id', auth, requireRole('admin'), async (req, res, next) => {
   const id = parseInt(req.params.id, 10);
   try {
     const zone = await prisma.zone.findUnique({ where: { id } });
@@ -121,13 +121,13 @@ router.delete('/zones/:id', auth, requireRole('admin'), async (req, res) => {
     emitLayoutUpdated(await screenIdOfLayout(zone.layoutId));
     res.status(204).end();
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 
 // PUT /api/zones/:id/items — bulk assign/reorder ZoneItems in a zone
 // body: { items: [{ itemId, row?, col?, index?, order? }, ...] }
-router.put('/zones/:id/items', auth, requireRole('admin'), async (req, res) => {
+router.put('/zones/:id/items', auth, requireRole('admin'), async (req, res, next) => {
   const id = parseInt(req.params.id, 10);
   const items = req.body?.items;
   if (!Array.isArray(items)) return res.status(400).json({ error: 'items must be an array' });
@@ -169,7 +169,7 @@ router.put('/zones/:id/items', auth, requireRole('admin'), async (req, res) => {
   } catch (err) {
     if (err.code === 'P2003') return res.status(400).json({ error: 'Invalid itemId' });
     if (err.code === 'P2002') return res.status(400).json({ error: 'Duplicate item in zone' });
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { fetchScreenLayout, pingScreen } from '../api/layoutApi'
+import { loadLayoutCache, saveLayoutCache } from '../api/layoutCache'
 import ScreenRenderer from '../components/layout/ScreenRenderer.jsx'
 import LoadingSkeleton from '../components/layout/LoadingSkeleton.jsx'
 
@@ -90,23 +91,39 @@ function useHeartbeat(screenId) {
 
 export default function ScreenDisplay({ screenId }) {
   const [resolvedId, setResolvedId] = useState(() => initialScreenId(screenId))
-  const [layout, setLayout] = useState(null)
+  // Seed straight from the cache: a board that already has something on
+  // screen should never flash the loading skeleton again after a reload.
+  const [layout, setLayout] = useState(() => loadLayoutCache(resolvedId))
   const [error, setError] = useState(null)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(() => !hasZones(loadLayoutCache(resolvedId)))
   const [autoSelected, setAutoSelected] = useState(false)
   const [revision, setRevision] = useState(0)
+  // True once the *last* network attempt failed. Does not blank the screen —
+  // it only flags that what's currently showing may be stale.
+  const [offline, setOffline] = useState(false)
 
   useLayoutEvents(resolvedId, () => setRevision((r) => r + 1))
   useHeartbeat(resolvedId)
 
+  // Shared success/failure handling for every fetch path below (initial load,
+  // WS-triggered refetch, 30s poll, visibility/focus refetch). A success
+  // always refreshes the cache; a failure only flips the offline flag — it
+  // must never clear an already-displayed layout.
+  const handleSuccess = (data) => {
+    setLayout(data)
+    setError(null)
+    if (hasZones(data)) {
+      setOffline(false)
+      saveLayoutCache(resolvedId, data)
+    }
+  }
+  const handleFailure = (err) => {
+    setError(err)
+    setOffline(true)
+  }
+
   useEffect(() => {
     let cancelled = false
-
-    const apply = (data) => {
-      if (cancelled) return
-      setLayout(data)
-      setError(null)
-    }
 
     const tryFallback = (onDone) => {
       firstScreenWithLayout().then((id) => {
@@ -124,7 +141,8 @@ export default function ScreenDisplay({ screenId }) {
 
     fetchScreenLayout(resolvedId)
       .then((data) => {
-        apply(data)
+        if (cancelled) return
+        handleSuccess(data)
         if (hasZones(data)) {
           setAutoSelected(false)
           setLoading(false)
@@ -133,13 +151,15 @@ export default function ScreenDisplay({ screenId }) {
         }
       })
       .catch((err) => {
-        apply(err)
+        if (cancelled) return
+        handleFailure(err)
         tryFallback(() => setLoading(false))
       })
 
     return () => {
       cancelled = true
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resolvedId])
 
   useEffect(() => {
@@ -148,12 +168,12 @@ export default function ScreenDisplay({ screenId }) {
     fetchScreenLayout(resolvedId)
       .then((data) => {
         if (cancelled) return
-        if (hasZones(data)) {
-          setLayout(data)
-          setError(null)
-        }
+        handleSuccess(data)
       })
-      .catch(() => {})
+      .catch((err) => {
+        if (cancelled) return
+        handleFailure(err)
+      })
     return () => {
       cancelled = true
     }
@@ -172,30 +192,26 @@ export default function ScreenDisplay({ screenId }) {
       })
     }
 
-    let timer = setInterval(() => {
-      fetchScreenLayout(resolvedId).then((data) => {
-        if (cancelled) return
-        if (hasZones(data)) {
-          setLayout(data)
-          setError(null)
-          setAutoSelected(false)
-        } else {
-          recover()
-        }
-      })
-    }, 30000)
-    const onVisible = () => {
-      if (document.visibilityState === 'visible') {
-        fetchScreenLayout(resolvedId).then((data) => {
+    const poll = () => {
+      fetchScreenLayout(resolvedId)
+        .then((data) => {
           if (cancelled) return
+          handleSuccess(data)
           if (hasZones(data)) {
-            setLayout(data)
-            setError(null)
+            setAutoSelected(false)
           } else {
             recover()
           }
         })
-      }
+        .catch((err) => {
+          if (cancelled) return
+          handleFailure(err)
+        })
+    }
+
+    const timer = setInterval(poll, 30000)
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') poll()
     }
     document.addEventListener('visibilitychange', onVisible)
     window.addEventListener('focus', onVisible)
@@ -206,27 +222,34 @@ export default function ScreenDisplay({ screenId }) {
       document.removeEventListener('visibilitychange', onVisible)
       window.removeEventListener('focus', onVisible)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resolvedId])
 
-  if (loading) {
+  // Show the skeleton only while we have truly nothing to display yet — once
+  // a cached or fetched layout exists, later loading/errors never blank it.
+  if (loading && !hasZones(layout)) {
     return <LoadingSkeleton />
   }
 
-  if (error && !hasZones(layout)) {
-    return <div className="font-menu-body text-menu-accent-2">Erreur : {error.message || String(error)}</div>
-  }
-
   if (!hasZones(layout)) {
-    return <div className="font-menu-body text-menu-text-muted">Layout vide — aucun écran publié</div>
+    return error ? (
+      <div className="font-menu-body text-menu-accent-2">Erreur : {error.message || String(error)}</div>
+    ) : (
+      <div className="font-menu-body text-menu-text-muted">Layout vide — aucun écran publié</div>
+    )
   }
 
   return (
     <>
-      {!loading && hasZones(layout) ? (
-        <div className="pointer-events-none fixed left-2 top-2 z-[60] rounded bg-black/55 px-2 py-0.5 font-menu-body text-[11px] text-white/60">
-          TV n°{resolvedId}
-        </div>
-      ) : null}
+      <div className="pointer-events-none fixed left-2 top-2 z-[60] flex items-center gap-1.5 rounded bg-black/55 px-2 py-0.5 font-menu-body text-[11px] text-white/60">
+        <span>TV n°{resolvedId}</span>
+        {offline ? (
+          <span className="flex items-center gap-1 text-amber-300/90">
+            <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+            hors ligne
+          </span>
+        ) : null}
+      </div>
       {autoSelected ? (
         <div className="z-50 flex w-full items-center justify-center gap-2 py-1 font-menu-body text-sm text-menu-text-muted">
           TV auto : écran n°{resolvedId} — utilisez <span className="text-menu-accent">?id={resolvedId}</span> pour le fixer
