@@ -1,6 +1,6 @@
 import type React from "react";
 import { createContext, useState, useContext, useCallback } from "react";
-import { setAuthToken } from "../api/axios";
+import { setAuthToken, setRefreshToken } from "../api/axios";
 
 type User = {
   id: number;
@@ -12,7 +12,7 @@ type User = {
 type AuthContextType = {
   user: User | null;
   token: string | null;
-  login: (user: User, token: string) => void;
+  login: (user: User, token: string, refreshToken: string) => void;
   logout: () => void;
 };
 
@@ -35,9 +35,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   );
   const [user, setUser] = useState<User | null>(() => getStoredUser());
 
-  const login = useCallback((nextUser: User, nextToken: string) => {
+  const login = useCallback((nextUser: User, nextToken: string, nextRefreshToken: string) => {
     localStorage.setItem("user", JSON.stringify(nextUser));
     setAuthToken(nextToken);
+    setRefreshToken(nextRefreshToken);
     setToken(nextToken);
     setUser(nextUser);
   }, []);
@@ -45,6 +46,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   const logout = useCallback(() => {
     localStorage.removeItem("user");
     setAuthToken(null);
+    setRefreshToken(null);
     setToken(null);
     setUser(null);
   }, []);
