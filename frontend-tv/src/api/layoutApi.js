@@ -1,4 +1,4 @@
-const API_BASE = '/api'
+import { API_BASE } from './apiBase'
 
 // GET /api/screens/:id/layout — zone-based layout (nested zones + items)
 export async function fetchScreenLayout(screenId) {

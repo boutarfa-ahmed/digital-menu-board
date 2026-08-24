@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { fetchScreenLayout, pingScreen } from '../api/layoutApi'
 import { loadLayoutCache, saveLayoutCache } from '../api/layoutCache'
+import { API_BASE, wsUrl } from '../api/apiBase'
 import ScreenRenderer from '../components/layout/ScreenRenderer.jsx'
 import LoadingSkeleton from '../components/layout/LoadingSkeleton.jsx'
 
@@ -20,12 +21,12 @@ function hasZones(layout) {
 
 async function firstScreenWithLayout() {
   try {
-    const res = await fetch('/api/screens', { cache: 'no-store' })
+    const res = await fetch(`${API_BASE}/screens`, { cache: 'no-store' })
     if (!res.ok) return null
     const screens = await res.json()
     for (const s of screens) {
       if (!s || s.id == null) continue
-      const lr = await fetch(`/api/screens/${s.id}/layout`, { cache: 'no-store' })
+      const lr = await fetch(`${API_BASE}/screens/${s.id}/layout`, { cache: 'no-store' })
       if (!lr.ok) continue
       const layout = await lr.json()
       if (hasZones(layout)) return s.id
@@ -46,8 +47,7 @@ function useLayoutEvents(screenId, onUpdate) {
     let retry = null
 
     const connect = () => {
-      const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
-      ws = new WebSocket(`${proto}://${window.location.host}/api`)
+      ws = new WebSocket(wsUrl())
       ws.onopen = () => {}
       ws.onmessage = (ev) => {
         try {
