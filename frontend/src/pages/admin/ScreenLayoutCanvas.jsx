@@ -3192,7 +3192,7 @@ function ScreenLayoutCanvas() {
                       clash
                         ? 'border-error-500 bg-error-50/90 ring-2 ring-error-500/50 dark:bg-error-500/20'
                         : 'border-gray-700'
-                    } ${isAdmin ? 'cursor-move' : ''} ${
+                    } ${isAdmin ? 'cursor-move touch-none' : ''} ${
                       active && !clash
                         ? 'ring-2 ring-brand-500/60'
                         : !active && selectedId === zone.id
@@ -3422,7 +3422,7 @@ function ScreenLayoutCanvas() {
                         <span
                           key={dir}
                           onPointerDown={(e) => startResize(e, zone, dir)}
-                          className={`absolute z-10 size-2.5 rounded-sm border border-white bg-brand-500 ${cls}`}
+                          className={`absolute z-10 size-2.5 touch-none rounded-sm border border-white bg-brand-500 ${cls}`}
                         />
                       ))}
                   </div>
@@ -3449,7 +3449,7 @@ function ScreenLayoutCanvas() {
                         selectedElementId === el.id
                           ? 'outline-brand-500'
                           : 'outline-transparent hover:outline-brand-300'
-                      } ${isAdmin ? 'cursor-move' : ''}`}
+                      } ${isAdmin ? 'cursor-move touch-none' : ''}`}
                       style={{
                         left: `${rect.x}%`,
                         top: `${rect.y}%`,
@@ -3467,7 +3467,12 @@ function ScreenLayoutCanvas() {
                           {el.text}
                         </div>
                       ) : el.imageUrl ? (
-                        <img src={el.imageUrl} alt="" className="h-full w-full object-fill" />
+                        <img
+                          src={el.imageUrl}
+                          alt=""
+                          draggable={false}
+                          className="h-full w-full object-fill"
+                        />
                       ) : (
                         <div className="flex h-full w-full items-center justify-center bg-gray-700/50 text-[10px] text-gray-300">
                           {el.type}
@@ -3479,7 +3484,7 @@ function ScreenLayoutCanvas() {
                             <span
                               key={dir}
                               onPointerDown={(e) => startElResize(e, el, dir)}
-                              className={`absolute z-10 size-2.5 rounded-sm border border-white bg-brand-500 ${cls}`}
+                              className={`absolute z-10 size-2.5 touch-none rounded-sm border border-white bg-brand-500 ${cls}`}
                             />
                           ))}
                         </>
