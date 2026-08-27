@@ -7,12 +7,20 @@ import Input from '../../components/form/input/InputField'
 import Label from '../../components/form/Label'
 import { Modal } from '../../components/ui/modal'
 import { useAuth } from '../../context/AuthContext'
-import { ChevronLeftIcon, PlusIcon, CloseIcon, TrashBinIcon, ListIcon, CheckLineIcon } from '../../icons'
+import { ChevronLeftIcon, PlusIcon, CloseIcon, TrashBinIcon, ListIcon, CheckLineIcon, PencilIcon } from '../../icons'
 import api from '../../api/axios'
 
 const GRID = 12
 const REQUIRES_GRID = ['grid', 'list', 'carousel']
 const CONTENT_ZONE_TYPES = ['menu', 'grid', 'list', 'carousel']
+
+// Sub-zone (T9): the product grid/list container's own position+size inside
+// its zone, as % of the space left under the zone's header — independent of
+// the zone's own box. Undefined/null on a zone's backgroundStyle means "fill
+// that whole space", matching the layout every zone had before this control
+// existed, so old zones render unchanged.
+const DEFAULT_CONTENT_BOX = { x: 0, y: 0, w: 100, h: 100 }
+const CONTENT_BOX_MIN = 10
 
 // Free elements (T8) are stored as % of the 1920x1080 TV design canvas — see
 // frontend-tv/src/components/layout/FreeElementsLayer.jsx. Image elements are
@@ -877,6 +885,14 @@ function ScreenLayoutCanvas() {
   const elChangeInputRef = useRef(null)
   const elAddTypeRef = useRef('image')
 
+  // Sub-zone (T9) — the pencil/trash toggle above a selected grid/list/carousel
+  // zone, plus the drag state for repositioning+resizing its product container
+  // within the zone. Only one zone can be in edit mode at a time.
+  const [subzoneEditId, setSubzoneEditId] = useState(null)
+  const [subzoneGesture, setSubzoneGesture] = useState(null)
+  const [subzoneDragRect, setSubzoneDragRect] = useState(null)
+  const subzoneAreaRef = useRef(null)
+
   const canvasRef = useRef(null)
   const zonesRef = useRef([])
   zonesRef.current = layout?.zones || []
@@ -997,6 +1013,45 @@ function ScreenLayoutCanvas() {
       dir,
       start: pt,
       orig: { x: el.x, y: el.y, w: el.w, h: el.h },
+    })
+  }
+
+  // Sub-zone (T9) — pointer position as % of the content-area DOM node itself
+  // (not the canvas): that node's real rect already excludes the zone's header,
+  // so this stays correct no matter how tall the title/banner ends up being.
+  const subzonePctFromEvent = (e) => {
+    const rect = subzoneAreaRef.current.getBoundingClientRect()
+    return {
+      x: clamp(((e.clientX - rect.left) / rect.width) * 100, 0, 100),
+      y: clamp(((e.clientY - rect.top) / rect.height) * 100, 0, 100),
+    }
+  }
+
+  const startSubzoneMove = (e, zone) => {
+    if (e.button !== 0) return
+    e.preventDefault()
+    e.stopPropagation()
+    const box = zone.backgroundStyle?.contentBox || DEFAULT_CONTENT_BOX
+    const pt = subzonePctFromEvent(e)
+    setSubzoneGesture({
+      zoneId: zone.id,
+      mode: 'move',
+      grab: { x: pt.x - box.x, y: pt.y - box.y },
+      orig: box,
+    })
+  }
+
+  const startSubzoneResize = (e, zone, dir) => {
+    if (e.button !== 0) return
+    e.preventDefault()
+    e.stopPropagation()
+    const box = zone.backgroundStyle?.contentBox || DEFAULT_CONTENT_BOX
+    setSubzoneGesture({
+      zoneId: zone.id,
+      mode: 'resize',
+      dir,
+      start: subzonePctFromEvent(e),
+      orig: box,
     })
   }
 
@@ -1148,6 +1203,83 @@ function ScreenLayoutCanvas() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [elGesture])
+
+  useEffect(() => {
+    if (!subzoneGesture) return
+    const { mode, dir, grab, start, orig } = subzoneGesture
+    let rafId = null
+    let latestRect = orig
+
+    const computeRect = (e) => {
+      const pt = subzonePctFromEvent(e)
+      let rect = { ...orig }
+      if (mode === 'move') {
+        rect.x = clamp(pt.x - grab.x, 0, 100 - orig.w)
+        rect.y = clamp(pt.y - grab.y, 0, 100 - orig.h)
+      } else {
+        const dx = pt.x - start.x
+        const dy = pt.y - start.y
+        if (dir.includes('e')) rect.w = orig.w + dx
+        if (dir.includes('s')) rect.h = orig.h + dy
+        if (dir.includes('w')) {
+          rect.x = orig.x + dx
+          rect.w = orig.w - dx
+        }
+        if (dir.includes('n')) {
+          rect.y = orig.y + dy
+          rect.h = orig.h - dy
+        }
+        rect.w = Math.max(CONTENT_BOX_MIN, rect.w)
+        rect.h = Math.max(CONTENT_BOX_MIN, rect.h)
+        rect.x = clamp(rect.x, 0, 100 - rect.w)
+        rect.y = clamp(rect.y, 0, 100 - rect.h)
+      }
+      return rect
+    }
+
+    const onMove = (e) => {
+      latestRect = computeRect(e)
+      if (rafId == null) {
+        rafId = requestAnimationFrame(() => {
+          rafId = null
+          setSubzoneDragRect(latestRect)
+        })
+      }
+    }
+
+    const onUp = () => {
+      if (rafId != null) {
+        cancelAnimationFrame(rafId)
+        rafId = null
+      }
+      const g = subzoneGesture
+      setSubzoneGesture(null)
+      setSubzoneDragRect(null)
+      const changed =
+        latestRect.x !== g.orig.x || latestRect.y !== g.orig.y || latestRect.w !== g.orig.w || latestRect.h !== g.orig.h
+      if (!changed) return
+      const zone = zonesRef.current.find((z) => z.id === g.zoneId)
+      if (!zone) return
+      patchZone(zone.id, { backgroundStyle: { ...(zone.backgroundStyle || {}), contentBox: latestRect } })
+    }
+
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onUp)
+    return () => {
+      if (rafId != null) cancelAnimationFrame(rafId)
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onUp)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subzoneGesture])
+
+  const resetSubzoneBox = (zone) => {
+    if (!zone.backgroundStyle?.contentBox) return
+    const { contentBox, ...rest } = zone.backgroundStyle
+    patchZone(zone.id, { backgroundStyle: rest })
+  }
 
   const commitZone = async (zoneId, rect) => {
     try {
@@ -3069,6 +3201,19 @@ function ScreenLayoutCanvas() {
                 const rows = zone.gridConfig?.rows || 1
                 const cols = zone.gridConfig?.cols || 1
 
+                // Sub-zone (T9) — the product container's own box within the
+                // zone, live-updated from subzoneDragRect while its handles are
+                // being dragged so the content repositions in real time.
+                const isEditingSubzone = subzoneEditId === zone.id
+                const activeContentBox =
+                  (isEditingSubzone && subzoneDragRect) || zone.backgroundStyle?.contentBox || DEFAULT_CONTENT_BOX
+                const contentBoxStyle = {
+                  left: `${activeContentBox.x}%`,
+                  top: `${activeContentBox.y}%`,
+                  width: `${activeContentBox.w}%`,
+                  height: `${activeContentBox.h}%`,
+                }
+
                 const zoneEmpty =
                   CONTENT_ZONE_TYPES.includes(zone.zoneType) && (zone.items?.length ?? 0) === 0
                 const zoneOverflow =
@@ -3216,18 +3361,59 @@ function ScreenLayoutCanvas() {
                       >
                         {zone.name || `Zone #${zone.id}`}
                       </p>
-                      <span className="rounded px-1 py-px text-[9px] font-medium uppercase text-gray-600 dark:text-gray-300" style={{ backgroundColor: 'rgba(0,0,0,0.15)' }}>
-                        {ZONE_TYPE_LABELS[zone.zoneType] || zone.zoneType}
-                      </span>
-                      {zoneWarnLabel && (
-                        <span className="rounded bg-warning-500/20 px-1 py-px text-[9px] font-medium text-warning-600 dark:bg-warning-500/15 dark:text-warning-400">
-                          {zoneWarnLabel}
+                      <div className="flex flex-none items-center gap-1">
+                        <span className="rounded px-1 py-px text-[9px] font-medium uppercase text-gray-600 dark:text-gray-300" style={{ backgroundColor: 'rgba(0,0,0,0.15)' }}>
+                          {ZONE_TYPE_LABELS[zone.zoneType] || zone.zoneType}
                         </span>
-                      )}
+                        {zoneWarnLabel && (
+                          <span className="rounded bg-warning-500/20 px-1 py-px text-[9px] font-medium text-warning-600 dark:bg-warning-500/15 dark:text-warning-400">
+                            {zoneWarnLabel}
+                          </span>
+                        )}
+                        {isAdmin && (isGrid || isList) && selectedId === zone.id && (
+                          <>
+                            <button
+                              type="button"
+                              onPointerDown={(e) => e.stopPropagation()}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setSubzoneEditId((cur) => (cur === zone.id ? null : zone.id))
+                              }}
+                              title="Personnaliser la zone de contenu"
+                              className={`flex size-4 flex-none items-center justify-center rounded ${
+                                isEditingSubzone
+                                  ? 'bg-brand-500 text-white'
+                                  : 'bg-black/15 text-gray-700 hover:bg-brand-500/30 hover:text-brand-700 dark:text-gray-200'
+                              }`}
+                            >
+                              <PencilIcon className="size-2.5" />
+                            </button>
+                            {zone.backgroundStyle?.contentBox && (
+                              <button
+                                type="button"
+                                onPointerDown={(e) => e.stopPropagation()}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  resetSubzoneBox(zone)
+                                }}
+                                title="Réinitialiser la zone de contenu"
+                                className="flex size-4 flex-none items-center justify-center rounded bg-black/15 text-gray-700 hover:bg-error-500/30 hover:text-error-700 dark:text-gray-200"
+                              >
+                                <TrashBinIcon className="size-2.5" />
+                              </button>
+                            )}
+                          </>
+                        )}
+                      </div>
                     </div>
 
                     <ZoneBadgePreview config={zone.badgeConfig} accent={zAccent} />
 
+                    <div
+                      ref={isEditingSubzone ? subzoneAreaRef : undefined}
+                      className="relative min-h-0 flex-1"
+                    >
+                    <div className="absolute flex flex-col" style={contentBoxStyle}>
                     {(isGrid || isList) && (zone.items?.length ?? 0) > 0 ? (
                       isGrid ? (
                         <div
@@ -3416,6 +3602,24 @@ function ScreenLayoutCanvas() {
                         </p>
                       </div>
                     )}
+                    </div>
+
+                    {isAdmin && isEditingSubzone && (
+                      <div
+                        onPointerDown={(e) => startSubzoneMove(e, zone)}
+                        className="absolute z-20 cursor-move touch-none rounded-sm ring-2 ring-brand-500/80"
+                        style={contentBoxStyle}
+                      >
+                        {RESIZE_HANDLES.map(({ dir, cls }) => (
+                          <span
+                            key={dir}
+                            onPointerDown={(e) => startSubzoneResize(e, zone, dir)}
+                            className={`absolute z-20 size-2.5 touch-none rounded-sm border border-white bg-brand-500 ${cls}`}
+                          />
+                        ))}
+                      </div>
+                    )}
+                    </div>
 
                     {isAdmin &&
                       RESIZE_HANDLES.map(({ dir, cls }) => (

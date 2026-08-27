@@ -5,7 +5,7 @@
 // pixel-perfect across TVs with slightly different resolutions.
 import { useEffect, useState } from 'react'
 import Background from '../ui/Background.jsx'
-import ZoneSeams from '../ui/ZoneSeams.jsx'
+import ZoneSeams, { zoneSeamEdges } from '../ui/ZoneSeams.jsx'
 import FreeElementsLayer from './FreeElementsLayer.jsx'
 import { themeToCssVars } from '../../theme/designTokens'
 import ZoneRenderer from '../zones/ZoneRenderer.jsx'
@@ -34,6 +34,12 @@ export default function ScreenRenderer({ layout }) {
   const { w, h } = useViewport()
   const scale = Math.min(w / DESIGN_W, h / DESIGN_H)
   const zones = layout?.zones || []
+  // Seam-adjacent zones inset that one edge further so their own content
+  // clears the torn-paper band ZoneSeams draws on top (z-30) of it — see
+  // ZoneRenderer. Same on/off + hidden-seam rules as ZoneSeams itself, so a
+  // zone never insets for a seam that isn't actually being drawn.
+  const seamsOn = layout?.settings?.background?.pattern === 'torn-paper' && layout.settings.background.seamsEnabled !== false
+  const seamEdgesByZone = seamsOn ? zoneSeamEdges(zones, layout.settings.background.hiddenSeams) : {}
 
   return (
     <div className="flex h-screen w-screen items-center justify-center overflow-hidden bg-black">
@@ -62,7 +68,12 @@ export default function ScreenRenderer({ layout }) {
                 zIndex: 20,
               }}
             >
-              <ZoneRenderer zone={zone} theme={layout?.theme} settings={layout?.settings} />
+              <ZoneRenderer
+                zone={zone}
+                theme={layout?.theme}
+                settings={layout?.settings}
+                seamEdges={seamEdgesByZone[zone.id]}
+              />
             </div>
           ))}
           {layout?.settings?.background?.pattern === 'torn-paper' && (

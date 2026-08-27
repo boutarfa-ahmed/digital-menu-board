@@ -30,19 +30,24 @@ function toDataURI(buffer, mimetype) {
   return `data:${mimetype};base64,${b64}`;
 }
 
-// Animated GIFs are passed through untouched (resizing would need extra care
-// to keep the animation); everything else gets downsized/re-encoded once it's
-// past CLOUDINARY_SAFE_SIZE. Re-encoding to WebP (not JPEG) matters here:
-// JPEG has no alpha channel, so sharp would flatten a transparent PNG onto a
-// black background — WebP keeps transparency intact.
+// Animated GIFs are passed through untouched (resizing/trimming would need
+// extra care to keep the animation). Everything else is trimmed — product
+// photos come in with wildly different amounts of blank/transparent margin
+// baked around the subject, which makes cards render at inconsistent visual
+// sizes on the TV grid even though the card box itself is identical — then
+// downsized/re-encoded once it's past CLOUDINARY_SAFE_SIZE. Re-encoding to
+// WebP (not JPEG) matters here: JPEG has no alpha channel, so sharp would
+// flatten a transparent PNG onto a black background — WebP keeps
+// transparency intact.
 async function prepareForUpload(file) {
-  if (file.mimetype === 'image/gif' || file.size <= CLOUDINARY_SAFE_SIZE) {
+  if (file.mimetype === 'image/gif') {
     return { buffer: file.buffer, mimetype: file.mimetype };
   }
-  const buffer = await sharp(file.buffer)
-    .resize({ width: MAX_DIMENSION, height: MAX_DIMENSION, fit: 'inside', withoutEnlargement: true })
-    .webp({ quality: 82 })
-    .toBuffer();
+  let pipeline = sharp(file.buffer).trim();
+  if (file.size > CLOUDINARY_SAFE_SIZE) {
+    pipeline = pipeline.resize({ width: MAX_DIMENSION, height: MAX_DIMENSION, fit: 'inside', withoutEnlargement: true });
+  }
+  const buffer = await pipeline.webp({ quality: 82 }).toBuffer();
   return { buffer, mimetype: 'image/webp' };
 }
 

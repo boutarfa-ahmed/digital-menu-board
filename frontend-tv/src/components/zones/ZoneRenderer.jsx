@@ -70,6 +70,13 @@ function ZoneTitle({ name, accent, banner, extraPrice, badgeType, theme, fontSiz
 
 // Grid cell: the product image fills the cell edge-to-edge (cover, "GIF-like").
 // No image -> empty cell, no centered fallback icon.
+//
+// The image sits in its own flex-1 area and the name in a fixed-height
+// (2-line-clamped) area below it — both reserved up front instead of the
+// pair being centered as one block. Centering as one block used to let a
+// longer name (wrapping to 2 lines) push its own image up/down relative to
+// a neighbor with a 1-line name, so images drifted out of row with each
+// other across the grid even though every cell is the same size.
 function GridImageCell({ zi, template, scale = 1 }) {
   const { name, imageUrl } = cardFields(zi.item)
   if (!imageUrl) return null
@@ -77,17 +84,20 @@ function GridImageCell({ zi, template, scale = 1 }) {
   const s = ts.scale * scale
   const maxH = Math.min(96, Math.round(78 * s))
   const maxW = Math.min(98, Math.round(85 * s))
+  const labelSize = Math.round(14 * s)
   return (
-    <div className="flex h-full w-full flex-col items-center justify-center gap-2 p-2">
-      <img
-        src={imageUrl}
-        alt={name}
-        className="max-w-full object-contain"
-        style={{ maxHeight: `${maxH}%`, maxWidth: `${maxW}%`, filter: 'drop-shadow(0 8px 10px rgba(0,0,0,0.35))' }}
-      />
+    <div className="flex h-full w-full flex-col items-center gap-2 p-2">
+      <div className="flex min-h-0 w-full flex-1 items-center justify-center">
+        <img
+          src={imageUrl}
+          alt={name}
+          className="max-h-full max-w-full object-contain"
+          style={{ maxHeight: `${maxH}%`, maxWidth: `${maxW}%`, filter: 'drop-shadow(0 8px 10px rgba(0,0,0,0.35))' }}
+        />
+      </div>
       <span
-        className="text-center font-menu-header uppercase leading-tight tracking-wide text-menu-text"
-        style={{ fontSize: `${Math.round(14 * s)}px` }}
+        className="line-clamp-2 flex-none text-center font-menu-header uppercase leading-tight tracking-wide text-menu-text"
+        style={{ fontSize: labelSize, minHeight: Math.round(labelSize * 1.3 * 2) }}
       >
         {name}
       </span>
@@ -135,14 +145,22 @@ function GridContent({ zone, theme, scale = 1, badgeType, priceVariant }) {
   return (
     <div
       className="grid min-h-0 flex-1 gap-5"
-      style={{ gridTemplateColumns: `repeat(${cols}, 1fr)`, gridTemplateRows: `repeat(${rows}, 1fr)` }}
+      style={{
+        // minmax(0, 1fr), not a bare 1fr: a bare 1fr track still grows past an
+        // even split to fit its content's min-content size, which is exactly
+        // how a large "Taille de police" zone size used to push a product
+        // past its own cell (and into the zone's edge/neighboring cells). The
+        // 0 floor makes the cell win that fight on its own, so the cell
+        // wrapper below doesn't need its own overflow-hidden (that used to
+        // clip paint-only effects — box-shadow, drop-shadow — that bleed a
+        // few px past the box without actually growing it).
+        gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
+        gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))`,
+      }}
     >
       {cells.map((zi, i) =>
         zi ? (
-          <div
-            key={zi.itemId}
-            className={`m-auto min-h-0 min-w-0 ${isIconLabel || isTextOnly ? 'flex items-center justify-center' : ''}`}
-          >
+          <div key={zi.itemId} className="flex h-full w-full min-h-0 min-w-0 items-center justify-center">
             {cellContent(zi, i)}
           </div>
         ) : (
@@ -248,7 +266,14 @@ function BannerContent({ zone, theme, settings, accent, fontSize, badgeType }) {
   )
 }
 
-export default function ZoneRenderer({ zone, theme, settings }) {
+// Base zone padding, and the deeper inset used on whichever edge(s) carry a
+// torn-paper seam — ZoneSeams draws that band 20px deep into this zone (its
+// 40px band is centered ON the shared edge), so content needs to clear that
+// same depth only on that edge, not all four.
+const ZONE_PAD = 10
+const ZONE_PAD_SEAM = 25
+
+export default function ZoneRenderer({ zone, theme, settings, seamEdges }) {
   const zStyle = zone.backgroundStyle || {}
   const accent = zStyle.accent || accentOf(theme)
   const isDark = !!zStyle.dark
@@ -285,6 +310,22 @@ export default function ZoneRenderer({ zone, theme, settings }) {
   // that predate this control don't change appearance.
   const priceVariant = zStyle.dark === undefined ? undefined : isDark ? 'light' : 'dark'
 
+  // T9: sub-zone — the product grid/list container's own box within the zone,
+  // as % of the space left under the title (not the whole zone), so it never
+  // needs to account for the title's own variable height. Undefined = fill
+  // that whole space, i.e. the exact layout every zone had before this
+  // control existed.
+  const contentBox = zStyle.contentBox
+  const contentBoxStyle = contentBox
+    ? {
+        position: 'absolute',
+        left: `${contentBox.x}%`,
+        top: `${contentBox.y}%`,
+        width: `${contentBox.w}%`,
+        height: `${contentBox.h}%`,
+      }
+    : undefined
+
   let content
   if (isBanner) {
     content = <BannerContent zone={zone} theme={theme} settings={settings} accent={accent} fontSize={zStyle.fontSize} badgeType={zStyle.badgeType} />
@@ -292,14 +333,22 @@ export default function ZoneRenderer({ zone, theme, settings }) {
     content = (
       <div className="flex h-full flex-col">
         <ZoneTitle name={zone.name} accent={accent} extraPrice={zone.backgroundStyle?.extraPrice} badgeType={zStyle.badgeType} theme={theme} banner={zone.backgroundStyle?.banner} fontSize={zStyle.fontSize} />
-        <GridContent zone={zone} theme={theme} scale={cardScale} badgeType={zStyle.badgeType} priceVariant={priceVariant} />
+        <div className="relative min-h-0 flex-1">
+          <div className="flex h-full flex-col" style={contentBoxStyle}>
+            <GridContent zone={zone} theme={theme} scale={cardScale} badgeType={zStyle.badgeType} priceVariant={priceVariant} />
+          </div>
+        </div>
       </div>
     )
   } else if (isList) {
     content = (
       <div className="flex h-full flex-col">
         <ZoneTitle name={zone.name} accent={accent} extraPrice={zone.backgroundStyle?.extraPrice} badgeType={zStyle.badgeType} theme={theme} banner={zone.backgroundStyle?.banner} fontSize={zStyle.fontSize} />
-        <ListContent zone={zone} theme={theme} settings={settings} scale={cardScale} badgeType={zStyle.badgeType} priceVariant={priceVariant} />
+        <div className="relative min-h-0 flex-1">
+          <div className="flex h-full flex-col" style={contentBoxStyle}>
+            <ListContent zone={zone} theme={theme} settings={settings} scale={cardScale} badgeType={zStyle.badgeType} priceVariant={priceVariant} />
+          </div>
+        </div>
       </div>
     )
   } else {
@@ -319,10 +368,19 @@ export default function ZoneRenderer({ zone, theme, settings }) {
     )
   }
 
+  const pad = (side) => (isBanner ? 0 : seamEdges?.[side] ? ZONE_PAD_SEAM : ZONE_PAD)
+
   return (
     <div
       className="relative h-full w-full overflow-hidden"
-      style={{ background: bg, padding: isBanner ? 0 : 40, ...cssVars }}
+      style={{
+        background: bg,
+        paddingTop: pad('top'),
+        paddingRight: pad('right'),
+        paddingBottom: pad('bottom'),
+        paddingLeft: pad('left'),
+        ...cssVars,
+      }}
     >
       {zStyle.bgImage ? (
         <div className="absolute inset-0">

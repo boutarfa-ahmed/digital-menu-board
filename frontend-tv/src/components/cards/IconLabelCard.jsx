@@ -17,7 +17,7 @@ export default function IconLabelCard({ item, theme, badgeConfig, size = 'md', s
   return (
     <div className="relative flex flex-col items-center gap-2">
       <div
-        className="overflow-hidden rounded-full bg-menu-badge shadow-menu-badge"
+        className={`overflow-hidden rounded-full shadow-menu-badge ${!imageUrl ? 'bg-menu-badge' : ''}`}
         style={{
           width: Math.round(s.box * scale),
           height: Math.round(s.box * scale),
