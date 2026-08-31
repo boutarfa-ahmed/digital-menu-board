@@ -259,10 +259,7 @@ function BannerContent({ zone, theme, settings, accent, fontSize, badgeType }) {
     )
   }
   return (
-    <div
-      className="flex h-full w-full flex-col items-center justify-center gap-3"
-      style={{ background: 'linear-gradient(135deg, rgba(255,255,255,0.08), rgba(0,0,0,0.25))' }}
-    >
+    <div className="flex h-full w-full flex-col items-center justify-center gap-3">
       {zone.name ? (
         <h2 className="font-menu-header uppercase tracking-wide" style={{ color: accent, fontSize: Math.round(44 * scale) }}>
           {zone.name}
