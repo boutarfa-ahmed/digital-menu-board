@@ -84,7 +84,10 @@ function GridImageCell({ zi, template, scale = 1 }) {
   const s = ts.scale * scale
   const maxH = Math.min(96, Math.round(78 * s))
   const maxW = Math.min(98, Math.round(85 * s))
-  const labelSize = Math.round(14 * s)
+  // cqmin (% of the cell's smaller side), not fixed px: keeps the name
+  // proportional to the image above it when gridConfig rows/cols change the
+  // cell size, instead of only tracking the zone-wide `scale`.
+  const labelSize = `clamp(11px, ${(6 * s).toFixed(1)}cqmin, 30px)`
   return (
     <div className="flex h-full w-full flex-col items-center gap-2 p-2">
       <div className="flex min-h-0 w-full flex-1 items-center justify-center">
@@ -97,7 +100,7 @@ function GridImageCell({ zi, template, scale = 1 }) {
       </div>
       <span
         className="line-clamp-2 flex-none text-center font-menu-header uppercase leading-tight tracking-wide text-menu-text"
-        style={{ fontSize: labelSize, minHeight: Math.round(labelSize * 1.3 * 2) }}
+        style={{ fontSize: labelSize, minHeight: `calc(${labelSize} * 2.6)` }}
       >
         {name}
       </span>
@@ -160,7 +163,11 @@ function GridContent({ zone, theme, scale = 1, badgeType, priceVariant }) {
     >
       {cells.map((zi, i) =>
         zi ? (
-          <div key={zi.itemId} className="flex h-full w-full min-h-0 min-w-0 items-center justify-center">
+          <div
+            key={zi.itemId}
+            className="flex h-full w-full min-h-0 min-w-0 items-center justify-center"
+            style={{ containerType: 'size' }}
+          >
             {cellContent(zi, i)}
           </div>
         ) : (
