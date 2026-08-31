@@ -7,7 +7,7 @@ const SIZES = {
   md: { box: 100, label: 16 },
 }
 
-// icon-label template: circular icon container + uppercase bold label below
+// icon-label template: square icon container + uppercase bold label below
 // (Meat/Sauces/Extra grids).
 export default function IconLabelCard({ item, theme, badgeConfig, size = 'md', scale = 1 }) {
   const { name, imageUrl } = cardFields(item)
@@ -17,7 +17,7 @@ export default function IconLabelCard({ item, theme, badgeConfig, size = 'md', s
   return (
     <div className="relative flex flex-col items-center gap-2">
       <div
-        className={`overflow-hidden rounded-full shadow-menu-badge ${!imageUrl ? 'bg-menu-badge' : ''}`}
+        className={`overflow-hidden ${!imageUrl ? 'bg-menu-badge' : ''}`}
         style={{
           width: Math.round(s.box * scale),
           height: Math.round(s.box * scale),
