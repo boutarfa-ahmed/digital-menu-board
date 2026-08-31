@@ -3,7 +3,7 @@ const cloudinary = require('../config/cloudinary');
 const prisma = require('../db');
 
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
-const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB
+const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
 
 // Cloudinary's current plan caps a single upload at 10MB. Rather than reject
 // large product photos, we resize/re-encode anything over this threshold so
