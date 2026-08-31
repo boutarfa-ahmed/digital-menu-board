@@ -59,11 +59,12 @@ function ZoneTitle({ name, accent, banner, extraPrice, badgeType, theme, fontSiz
       </div>
     )
   }
+  const ruleHeight = Math.max(2, Math.round(3 * scale))
   return (
     <div className="mb-6 flex items-center gap-4">
-      <span className="h-px flex-1" style={{ background: accent, opacity: 0.35 }} />
+      <span className="flex-1 rounded-full" style={{ height: ruleHeight, background: accent, opacity: 0.35 }} />
       {title}
-      <span className="h-px flex-1" style={{ background: accent, opacity: 0.35 }} />
+      <span className="flex-1 rounded-full" style={{ height: ruleHeight, background: accent, opacity: 0.35 }} />
     </div>
   )
 }
