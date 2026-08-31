@@ -24,7 +24,14 @@ function signRefreshToken(user) {
   return jwt.sign(
     { id: user.id },
     REFRESH_SECRET,
-    { expiresIn: `${REFRESH_EXPIRES_IN_DAYS}d` }
+    {
+      expiresIn: `${REFRESH_EXPIRES_IN_DAYS}d`,
+      // Without a random jti, two calls for the same user within the same
+      // second (same payload + same iat + same secret) produce the exact
+      // same token string — and RefreshToken.token is @unique, so the second
+      // save would crash with a constraint violation instead of rotating.
+      jwtid: crypto.randomUUID(),
+    }
   );
 }
 

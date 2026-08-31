@@ -77,7 +77,7 @@ export default function FreeElementsLayer({ elements }) {
                     style={{ backgroundColor: lineColor, opacity: 0.6, height: lineW }}
                   />
                   <span
-                    className="shrink-0 whitespace-nowrap font-menu-body italic"
+                    className="shrink-0 whitespace-nowrap font-menu-divider"
                     style={{ fontSize: cap(el.fontSize) || 24, color: lineColor, lineHeight: 1.4 }}
                   >
                     {el.text}
@@ -127,10 +127,12 @@ export default function FreeElementsLayer({ elements }) {
         }
 
         // 'image' and 'logo' — user-uploaded content (e.g. Cloudinary).
-        // object-contain: logos/decorative graphics should not be cropped.
+        // object-fill: width/height are set independently in the admin editor,
+        // so the image must exactly fill that box (no aspect-ratio letterbox
+        // gap) — otherwise it never visually reaches an edge/corner placement.
         return (
           <div key={el.id} style={box}>
-            <img src={el.imageUrl} alt="" className="h-full w-full object-contain" />
+            <img src={el.imageUrl} alt="" className="h-full w-full object-fill" />
           </div>
         )
       })}

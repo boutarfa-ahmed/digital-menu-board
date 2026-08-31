@@ -3,13 +3,13 @@ import CardBadge from './CardBadge.jsx'
 import ImageFallback from './ImageFallback.jsx'
 
 const SIZES = {
-  sm: { box: 80, label: 'text-sm' },
-  md: { box: 100, label: 'text-base' },
+  sm: { box: 80, label: 14 },
+  md: { box: 100, label: 16 },
 }
 
 // icon-label template: circular icon container + uppercase bold label below
 // (Meat/Sauces/Extra grids).
-export default function IconLabelCard({ item, theme, badgeConfig, size = 'md' }) {
+export default function IconLabelCard({ item, theme, badgeConfig, size = 'md', scale = 1 }) {
   const { name, imageUrl } = cardFields(item)
   const s = SIZES[size] || SIZES.md
   const accent = accentOf(theme)
@@ -17,10 +17,10 @@ export default function IconLabelCard({ item, theme, badgeConfig, size = 'md' })
   return (
     <div className="relative flex flex-col items-center gap-2">
       <div
-        className="overflow-hidden rounded-full bg-menu-badge shadow-menu-badge"
+        className={`overflow-hidden rounded-full shadow-menu-badge ${!imageUrl ? 'bg-menu-badge' : ''}`}
         style={{
-          width: s.box,
-          height: s.box,
+          width: Math.round(s.box * scale),
+          height: Math.round(s.box * scale),
           ...(!imageUrl ? { border: `2px solid ${accent}` } : {}),
         }}
       >
@@ -31,7 +31,8 @@ export default function IconLabelCard({ item, theme, badgeConfig, size = 'md' })
         )}
       </div>
       <span
-        className={`font-menu-body text-center font-bold uppercase ${s.label} text-menu-text`}
+        className="font-menu-body text-center font-bold uppercase text-menu-text"
+        style={{ fontSize: Math.round(s.label * scale) }}
       >
         {name}
       </span>

@@ -181,6 +181,28 @@ function validateBackgroundStyle(style) {
       errors.push(`backgroundStyle.fontSize must be a number between ${FONT_SIZE_MIN} and ${FONT_SIZE_MAX}px`);
     }
   }
+  // T9: sub-zone — the product grid/list container's own box within the zone,
+  // as % of the space left under the zone's header. null clears it (fills
+  // that whole space, same as a zone that never set this).
+  if (style.contentBox !== undefined && style.contentBox !== null) {
+    const cb = style.contentBox;
+    if (!cb || typeof cb !== 'object' || Array.isArray(cb)) {
+      errors.push('backgroundStyle.contentBox must be an object');
+    } else {
+      for (const key of ['x', 'y']) {
+        const n = Number(cb[key]);
+        if (!Number.isFinite(n) || n < 0 || n > 100) {
+          errors.push(`backgroundStyle.contentBox.${key} must be a number between 0 and 100`);
+        }
+      }
+      for (const key of ['w', 'h']) {
+        const n = Number(cb[key]);
+        if (!Number.isFinite(n) || n <= 0 || n > 100) {
+          errors.push(`backgroundStyle.contentBox.${key} must be a number between 0 (exclusive) and 100`);
+        }
+      }
+    }
+  }
   return errors;
 }
 
@@ -288,7 +310,9 @@ function validateZoneFields(body) {
     } else {
       errors.push(...validateGridConfig(b.gridConfig));
     }
-  } else if (b.gridConfig !== undefined) {
+  } else if (b.gridConfig !== undefined && b.gridConfig !== null && Object.keys(b.gridConfig).length > 0) {
+    // Non-grid zone types (hero, banner, ...) round-trip gridConfig as {} from GET
+    // (see parseJson fallback below); treat that as "not provided" rather than invalid.
     errors.push(...validateGridConfig(b.gridConfig));
   }
   if (b.badgeConfig !== undefined) {

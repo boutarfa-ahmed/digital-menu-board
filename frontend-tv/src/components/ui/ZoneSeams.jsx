@@ -13,6 +13,7 @@
 // ScreenLayoutCanvas.jsx (the two apps share no module to import from).
 
 const GRID = 12
+const DESIGN_W = 1920
 const DESIGN_H = 1080
 
 const TILE_LEN = 220
@@ -78,6 +79,56 @@ function computeSeams(zones) {
   return { v, h }
 }
 
+// Which of THIS zone's 4 edges has a visible torn seam on it — same pairing
+// rules as computeSeams above (shared edge + overlapping span), so a zone
+// next to the seam band can inset its own content away from that specific
+// edge instead of every edge (see ZoneRenderer's per-side padding).
+export function zoneSeamEdges(zones, hiddenSeams = []) {
+  const hidden = new Set(hiddenSeams || [])
+  const map = {}
+  const mark = (zone, side, key) => {
+    if (hidden.has(key)) return
+    if (!map[zone.id]) map[zone.id] = {}
+    map[zone.id][side] = true
+  }
+  const list = zones || []
+  for (let i = 0; i < list.length; i++) {
+    for (let j = 0; j < i; j++) {
+      const a = list[i]
+      const b = list[j]
+      const yTop = Math.max(a.y, b.y)
+      const ySpan = Math.min(a.y + a.h, b.y + b.h) - yTop
+      const xLeft = Math.max(a.x, b.x)
+      const xSpan = Math.min(a.x + a.w, b.x + b.w) - xLeft
+      if (ySpan > 0) {
+        if (a.x + a.w === b.x) {
+          const key = `v:${b.x}:${yTop}:${ySpan}`
+          mark(a, 'right', key)
+          mark(b, 'left', key)
+        }
+        if (b.x + b.w === a.x) {
+          const key = `v:${a.x}:${yTop}:${ySpan}`
+          mark(b, 'right', key)
+          mark(a, 'left', key)
+        }
+      }
+      if (xSpan > 0) {
+        if (a.y + a.h === b.y) {
+          const key = `h:${b.y}:${xLeft}:${xSpan}`
+          mark(a, 'bottom', key)
+          mark(b, 'top', key)
+        }
+        if (b.y + b.h === a.y) {
+          const key = `h:${a.y}:${xLeft}:${xSpan}`
+          mark(b, 'bottom', key)
+          mark(a, 'top', key)
+        }
+      }
+    }
+  }
+  return map
+}
+
 // seedsEnabled master switch + per-seam hiddenSeams (keys like "v:6:0:12")
 export default function ZoneSeams({ zones, patternColor = '#FFFFFF', seamsEnabled = true, hiddenSeams = [] }) {
   const hidden = new Set(hiddenSeams || [])
@@ -88,53 +139,77 @@ export default function ZoneSeams({ zones, patternColor = '#FFFFFF', seamsEnable
   if (vv.length === 0 && hh.length === 0) return null
   return (
     <>
-      {vv.map((s) => (
-        <div
-          key={`zsv${s.key}`}
-          className="pointer-events-none absolute z-30"
-          style={{
-            left: `${(s.pos / GRID) * 100}%`,
-            top: `${(s.a / GRID) * 100}%`,
-            width: THICKNESS,
-            height: `${(s.span / GRID) * DESIGN_H}px`,
-            transform: 'translateX(-50%)',
-          }}
-        >
-          {/* Drift lives on this inner layer, not the outer div above: the
-              outer transform centers the strip on the seam line (static), so
-              the two don't fight over the same CSS property. */}
+      {vv.map((s) => {
+        // Two segments on the same seam line (one per zone pair touching it)
+        // are laid out top:%/height:px back to back — that mix of units can
+        // round to sub-pixel-apart edges in the browser instead of exactly
+        // touching, leaving a hairline gap. OUTSET pads each segment's div a
+        // touch past its true span (symmetric, so the midpoint doesn't move)
+        // so neighbors overlap by a hair instead of risking that gap; the
+        // background-position anchor below still uses the TRUE (non-outset)
+        // position so the tile phase itself doesn't shift.
+        const yPx = (s.a / GRID) * DESIGN_H
+        const hPx = (s.span / GRID) * DESIGN_H
+        const OUTSET = 1
+        return (
           <div
-            className="torn-seam-drift h-full w-full"
+            key={`zsv${s.key}`}
+            className="pointer-events-none absolute z-30"
             style={{
-              backgroundImage: tornStripVDataUri(patternColor),
-              backgroundRepeat: 'repeat-y',
-              backgroundSize: `${THICKNESS}px ${TILE_LEN}px`,
+              left: `${(s.pos / GRID) * 100}%`,
+              top: `${yPx - OUTSET / 2}px`,
+              width: THICKNESS,
+              height: `${hPx + OUTSET}px`,
+              transform: 'translateX(-50%)',
             }}
-          />
-        </div>
-      ))}
-      {hh.map((s) => (
-        <div
-          key={`zsh${s.key}`}
-          className="pointer-events-none absolute z-30"
-          style={{
-            left: `${(s.a / GRID) * 100}%`,
-            top: `${(s.pos / GRID) * 100}%`,
-            width: `${(s.span / GRID) * 100}%`,
-            height: THICKNESS,
-            transform: 'translateY(-50%)',
-          }}
-        >
+          >
+            {/* Drift lives on this inner layer, not the outer div above: the
+                outer transform centers the strip on the seam line (static), so
+                the two don't fight over the same CSS property. */}
+            <div
+              className="torn-seam-drift h-full w-full"
+              style={{
+                backgroundImage: tornStripVDataUri(patternColor),
+                backgroundRepeat: 'repeat-y',
+                backgroundSize: `${THICKNESS}px ${TILE_LEN}px`,
+                // Anchor the tile to this segment's own global Y (not its local
+                // 0) so two segments on the same seam line pick up the pattern
+                // where the other left off instead of each restarting it.
+                backgroundPositionY: `${-((yPx - OUTSET / 2) % TILE_LEN)}px`,
+              }}
+            />
+          </div>
+        )
+      })}
+      {hh.map((s) => {
+        const xPx = (s.a / GRID) * DESIGN_W
+        const wPct = (s.span / GRID) * 100
+        const OUTSET = 1
+        return (
           <div
-            className="torn-seam-drift h-full w-full"
+            key={`zsh${s.key}`}
+            className="pointer-events-none absolute z-30"
             style={{
-              backgroundImage: tornStripDataUri(patternColor),
-              backgroundRepeat: 'repeat-x',
-              backgroundSize: `${TILE_LEN}px ${THICKNESS}px`,
+              left: `calc(${(s.a / GRID) * 100}% - ${OUTSET / 2}px)`,
+              top: `${(s.pos / GRID) * 100}%`,
+              width: `calc(${wPct}% + ${OUTSET}px)`,
+              height: THICKNESS,
+              transform: 'translateY(-50%)',
             }}
-          />
-        </div>
-      ))}
+          >
+            <div
+              className="torn-seam-drift h-full w-full"
+              style={{
+                backgroundImage: tornStripDataUri(patternColor),
+                backgroundRepeat: 'repeat-x',
+                backgroundSize: `${TILE_LEN}px ${THICKNESS}px`,
+                // Same anchoring as the vertical band above, along X this time.
+                backgroundPositionX: `${-((xPx - OUTSET / 2) % TILE_LEN)}px`,
+              }}
+            />
+          </div>
+        )
+      })}
     </>
   )
 }

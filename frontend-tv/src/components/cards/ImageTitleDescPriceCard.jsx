@@ -2,7 +2,7 @@ import { cardFields, templateStyle } from './cardUtils.js'
 import CardBadge from './CardBadge.jsx'
 import ImageFallback from './ImageFallback.jsx'
 import PriceBadge from '../primitives/PriceBadge.jsx'
-import { badgeStyleOf, currencyOf } from '../../theme/designTokens'
+import { badgeStyleOf, badgeTypeOf, currencyOf } from '../../theme/designTokens'
 
 // Size map (rem — relative units, scaled by zoneSize). Font sizes + image
 // box grow proportionally; outer container itself stays % / rem only.
@@ -32,14 +32,17 @@ export default function ImageTitleDescPriceCard({
   zoneSize = 'md',
   template,
   mirror = false,
+  scale = 1,
+  badgeType,
+  variant,
 }) {
   const { name, description, price, imageUrl } = cardFields(item)
   const row = align === 'right' ? 'flex-row-reverse text-right' : ''
   const s = SIZE_MAP[zoneSize] || SIZE_MAP.md
   const ts = templateStyle(template)
-  const imgSize = `${((s.img + IMG_BOOST_REM) * (ts.media ? 1.2 : ts.scale)).toFixed(2)}rem`
-  const titleSize = `${((s.title + TEXT_BOOST_REM) * ts.scale).toFixed(2)}rem`
-  const descSize = `${((s.desc + TEXT_BOOST_REM) * ts.scale).toFixed(2)}rem`
+  const imgSize = `${((s.img + IMG_BOOST_REM) * (ts.media ? 1.2 * scale : ts.scale * scale)).toFixed(2)}rem`
+  const titleSize = `${((s.title + TEXT_BOOST_REM) * ts.scale * scale).toFixed(2)}rem`
+  const descSize = `${((s.desc + TEXT_BOOST_REM) * ts.scale * scale).toFixed(2)}rem`
 
   return (
     <div className={`relative flex w-full items-center gap-4 ${row}`}>
@@ -76,8 +79,16 @@ export default function ImageTitleDescPriceCard({
           </p>
         ) : null}
         {showPrice && price != null ? (
-          <div className="mt-2 flex items-center" style={{ transform: `scale(${PRICE_SCALE})`, transformOrigin: mirror ? 'top right' : 'top left' }}>
-            <PriceBadge price={price} size="md" rotate badgeStyle={badgeStyleOf(theme)} currency={currencyOf(theme)} />
+          <div className="mt-2 flex items-center" style={{ transform: `scale(${PRICE_SCALE * scale})`, transformOrigin: mirror ? 'top right' : 'top left' }}>
+            <PriceBadge
+              price={price}
+              size="md"
+              rotate
+              badgeStyle={badgeStyleOf(theme)}
+              badgeType={badgeTypeOf(badgeType)}
+              variant={variant}
+              currency={currencyOf(theme)}
+            />
           </div>
         ) : null}
       </div>

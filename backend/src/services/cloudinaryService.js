@@ -1,8 +1,16 @@
+const sharp = require('sharp');
 const cloudinary = require('../config/cloudinary');
 const prisma = require('../db');
 
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
-const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB
+
+// Cloudinary's current plan caps a single upload at 10MB. Rather than reject
+// large product photos, we resize/re-encode anything over this threshold so
+// it lands comfortably under that ceiling — TV displays don't need more than
+// MAX_DIMENSION px anyway.
+const CLOUDINARY_SAFE_SIZE = 9 * 1024 * 1024;
+const MAX_DIMENSION = 2000;
 
 function validateFile(file) {
   if (!file) {
@@ -17,9 +25,30 @@ function validateFile(file) {
   return { valid: true };
 }
 
-function toDataURI(file) {
-  const b64 = file.buffer.toString('base64');
-  return `data:${file.mimetype};base64,${b64}`;
+function toDataURI(buffer, mimetype) {
+  const b64 = buffer.toString('base64');
+  return `data:${mimetype};base64,${b64}`;
+}
+
+// Animated GIFs are passed through untouched (resizing/trimming would need
+// extra care to keep the animation). Everything else is trimmed — product
+// photos come in with wildly different amounts of blank/transparent margin
+// baked around the subject, which makes cards render at inconsistent visual
+// sizes on the TV grid even though the card box itself is identical — then
+// downsized/re-encoded once it's past CLOUDINARY_SAFE_SIZE. Re-encoding to
+// WebP (not JPEG) matters here: JPEG has no alpha channel, so sharp would
+// flatten a transparent PNG onto a black background — WebP keeps
+// transparency intact.
+async function prepareForUpload(file) {
+  if (file.mimetype === 'image/gif') {
+    return { buffer: file.buffer, mimetype: file.mimetype };
+  }
+  let pipeline = sharp(file.buffer).trim();
+  if (file.size > CLOUDINARY_SAFE_SIZE) {
+    pipeline = pipeline.resize({ width: MAX_DIMENSION, height: MAX_DIMENSION, fit: 'inside', withoutEnlargement: true });
+  }
+  const buffer = await pipeline.webp({ quality: 82 }).toBuffer();
+  return { buffer, mimetype: 'image/webp' };
 }
 
 async function uploadImage(file, itemId) {
@@ -28,7 +57,8 @@ async function uploadImage(file, itemId) {
     throw new Error(validation.error);
   }
 
-  const dataURI = toDataURI(file);
+  const { buffer, mimetype } = await prepareForUpload(file);
+  const dataURI = toDataURI(buffer, mimetype);
   const result = await cloudinary.uploader.upload(dataURI, {
     folder: 'galaxyfood',
   });

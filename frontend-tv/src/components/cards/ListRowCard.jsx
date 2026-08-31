@@ -3,7 +3,7 @@ import CardBadge from './CardBadge.jsx'
 import ImageFallback from './ImageFallback.jsx'
 import PriceBadge from '../primitives/PriceBadge.jsx'
 import QtyBadge from '../primitives/QtyBadge.jsx'
-import { badgeStyleOf, currencyOf } from '../../theme/designTokens'
+import { badgeStyleOf, badgeTypeOf, currencyOf } from '../../theme/designTokens'
 
 // list-row-price-qty template: thumbnail — name — qty badge — right-aligned
 // price (Extras/Desserts style). Name forced uppercase — the reference rows
@@ -16,12 +16,17 @@ export default function ListRowCard({
   qtyLabel,
   showPrice = true,
   template,
+  scale = 1,
+  badgeType,
+  variant,
 }) {
   const { name, price, imageUrl } = cardFields(item)
   const ts = templateStyle(template)
-  const imgSize = Math.round(64 * (ts.media ? 1.3 : ts.scale))
-  const fontSize = Math.round(16 * ts.scale)
-  const py = Math.round(12 * ts.scale)
+  const s = ts.scale * scale
+  const imgSize = Math.round(64 * (ts.media ? 1.3 * scale : s))
+  const fontSize = Math.round(16 * s)
+  const py = Math.round(12 * s)
+  const priceFontSize = Math.round(24 * s)
 
   return (
     <div
@@ -54,7 +59,15 @@ export default function ListRowCard({
       {qtyLabel != null ? <QtyBadge qty={qtyLabel} size="sm" /> : null}
       {showPrice && price != null ? (
         <div className="shrink-0">
-          <PriceBadge price={price} size="sm" badgeStyle={badgeStyleOf(theme)} currency={currencyOf(theme)} />
+          <PriceBadge
+            price={price}
+            size="sm"
+            fontSize={priceFontSize}
+            badgeStyle={badgeStyleOf(theme)}
+            badgeType={badgeTypeOf(badgeType)}
+            variant={variant}
+            currency={currencyOf(theme)}
+          />
         </div>
       ) : null}
       <CardBadge config={badgeConfig} />

@@ -7,12 +7,31 @@ import Input from '../../components/form/input/InputField'
 import Label from '../../components/form/Label'
 import { Modal } from '../../components/ui/modal'
 import { useAuth } from '../../context/AuthContext'
-import { ChevronLeftIcon, PlusIcon, CloseIcon, TrashBinIcon, ListIcon, CheckLineIcon } from '../../icons'
+import { ChevronLeftIcon, PlusIcon, CloseIcon, TrashBinIcon, ListIcon, CheckLineIcon, PencilIcon } from '../../icons'
 import api from '../../api/axios'
 
 const GRID = 12
 const REQUIRES_GRID = ['grid', 'list', 'carousel']
 const CONTENT_ZONE_TYPES = ['menu', 'grid', 'list', 'carousel']
+
+// Sub-zone (T9): the product grid/list container's own position+size inside
+// its zone, as % of the space left under the zone's header — independent of
+// the zone's own box. Undefined/null on a zone's backgroundStyle means "fill
+// that whole space", matching the layout every zone had before this control
+// existed, so old zones render unchanged.
+const DEFAULT_CONTENT_BOX = { x: 0, y: 0, w: 100, h: 100 }
+const CONTENT_BOX_MIN = 10
+
+// Free elements (T8) are stored as % of the 1920x1080 TV design canvas — see
+// frontend-tv/src/components/layout/FreeElementsLayer.jsx. Image elements are
+// edited in px in this admin UI, so convert both ways against that canvas.
+const EL_DESIGN_W = 1920
+const EL_DESIGN_H = 1080
+const EL_IMAGE_MAX_PX = 1000
+const pxToPctW = (px) => (px / EL_DESIGN_W) * 100
+const pxToPctH = (px) => (px / EL_DESIGN_H) * 100
+const pctToPxW = (pct) => Math.round((pct / 100) * EL_DESIGN_W)
+const pctToPxH = (pct) => Math.round((pct / 100) * EL_DESIGN_H)
 
 const ZONE_TYPE_LABELS = {
   menu: 'Menu',
@@ -82,7 +101,7 @@ const BADGE_POSITION_LABELS = {
 }
 
 // T7.4 — zone style overrides (backgroundStyle JSON on the zone)
-const FONT_SIZES = [12, 14, 16, 18, 20, 24, 28]
+const FONT_SIZES = [6, 8, 10, 12, 14, 16, 18, 20, 24, 28]
 const STYLE_DEFAULTS = {
   bgDark: '#121212',
   bgLight: '#F5F3EF',
@@ -679,10 +698,75 @@ const RESIZE_HANDLES = [
   { dir: 'se', cls: '-bottom-0.5 -right-0.5 cursor-nwse-resize' },
 ]
 
+// Free elements: the selection frame floats outline-offset-[7.5px] away from
+// the actual element on EACH side (see the "Éléments" overlay below), so the
+// frame's own width/height end up exactly element size + 15px total (e.g. a
+// 500x400 element gets a ~515x415 frame) instead of touching the image/text
+// bounds. Handles are nudged out to sit on that same ring (7.5px offset +
+// ~1px half the outline's own stroke + half the handle's own 10px size).
+const EL_RESIZE_HANDLES = [
+  { dir: 'nw', cls: '-left-[13.5px] -top-[13.5px] cursor-nwse-resize' },
+  { dir: 'ne', cls: '-right-[13.5px] -top-[13.5px] cursor-nesw-resize' },
+  { dir: 'sw', cls: '-bottom-[13.5px] -left-[13.5px] cursor-nesw-resize' },
+  { dir: 'se', cls: '-bottom-[13.5px] -right-[13.5px] cursor-nwse-resize' },
+]
+
 const overlaps = (a, b) =>
   a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h
 
 const clamp = (n, min, max) => Math.max(min, Math.min(max, n))
+
+// Free-floating image elements: a PNG/WEBP export often carries transparent
+// padding around the actual drawing (e.g. a torn-paper sticker on a square
+// canvas). Since the element's box/frame is exactly the uploaded image's own
+// pixel dimensions, that padding used to end up INSIDE the box too — the
+// visible artwork never really reached an edge or corner. Trim it once here,
+// at upload time, so the stored image (and thus the frame) hugs only the
+// non-transparent pixels.
+const TRIM_ALPHA_THRESHOLD = 10
+async function trimTransparentPadding(file) {
+  if (!/png|webp/.test(file.type || '')) return file
+  try {
+    const bitmap = await createImageBitmap(file)
+    const canvas = document.createElement('canvas')
+    canvas.width = bitmap.width
+    canvas.height = bitmap.height
+    const ctx = canvas.getContext('2d')
+    ctx.drawImage(bitmap, 0, 0)
+    const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height)
+
+    let minX = canvas.width
+    let minY = canvas.height
+    let maxX = -1
+    let maxY = -1
+    for (let y = 0; y < canvas.height; y++) {
+      for (let x = 0; x < canvas.width; x++) {
+        if (data[(y * canvas.width + x) * 4 + 3] > TRIM_ALPHA_THRESHOLD) {
+          if (x < minX) minX = x
+          if (x > maxX) maxX = x
+          if (y < minY) minY = y
+          if (y > maxY) maxY = y
+        }
+      }
+    }
+
+    const nothingVisible = maxX < 0
+    const nothingToTrim = minX === 0 && minY === 0 && maxX === canvas.width - 1 && maxY === canvas.height - 1
+    if (nothingVisible || nothingToTrim) return file
+
+    const w = maxX - minX + 1
+    const h = maxY - minY + 1
+    const trimmed = document.createElement('canvas')
+    trimmed.width = w
+    trimmed.height = h
+    trimmed.getContext('2d').drawImage(canvas, minX, minY, w, h, 0, 0, w, h)
+    const blob = await new Promise((resolve) => trimmed.toBlob(resolve, 'image/png'))
+    if (!blob) return file
+    return new File([blob], file.name.replace(/\.\w+$/, '.png'), { type: 'image/png' })
+  } catch {
+    return file
+  }
+}
 
 function findFreePosition(zones, w, h) {
   for (let y = 0; y <= GRID - h; y += 1) {
@@ -791,10 +875,23 @@ function ScreenLayoutCanvas() {
   const [elements, setElements] = useState([])
   const [selectedElementId, setSelectedElementId] = useState(null)
   const [elGesture, setElGesture] = useState(null)
+  // Live rect while dragging/resizing an element — kept OUT of elGesture so
+  // updating it doesn't re-run the pointermove-listener effect below on every
+  // pixel of movement (that used to tear down + re-add window listeners per
+  // frame, which is what made dragging feel heavy).
+  const [elDragRect, setElDragRect] = useState(null)
   const [elUploading, setElUploading] = useState(false)
   const elAddInputRef = useRef(null)
   const elChangeInputRef = useRef(null)
   const elAddTypeRef = useRef('image')
+
+  // Sub-zone (T9) — the pencil/trash toggle above a selected grid/list/carousel
+  // zone, plus the drag state for repositioning+resizing its product container
+  // within the zone. Only one zone can be in edit mode at a time.
+  const [subzoneEditId, setSubzoneEditId] = useState(null)
+  const [subzoneGesture, setSubzoneGesture] = useState(null)
+  const [subzoneDragRect, setSubzoneDragRect] = useState(null)
+  const subzoneAreaRef = useRef(null)
 
   const canvasRef = useRef(null)
   const zonesRef = useRef([])
@@ -902,7 +999,6 @@ function ScreenLayoutCanvas() {
       grab: { x: pt.x - el.x, y: pt.y - el.y },
       start: pt,
       orig: { x: el.x, y: el.y, w: el.w, h: el.h },
-      rect: { x: el.x, y: el.y, w: el.w, h: el.h },
     })
   }
 
@@ -917,7 +1013,45 @@ function ScreenLayoutCanvas() {
       dir,
       start: pt,
       orig: { x: el.x, y: el.y, w: el.w, h: el.h },
-      rect: { x: el.x, y: el.y, w: el.w, h: el.h },
+    })
+  }
+
+  // Sub-zone (T9) — pointer position as % of the content-area DOM node itself
+  // (not the canvas): that node's real rect already excludes the zone's header,
+  // so this stays correct no matter how tall the title/banner ends up being.
+  const subzonePctFromEvent = (e) => {
+    const rect = subzoneAreaRef.current.getBoundingClientRect()
+    return {
+      x: clamp(((e.clientX - rect.left) / rect.width) * 100, 0, 100),
+      y: clamp(((e.clientY - rect.top) / rect.height) * 100, 0, 100),
+    }
+  }
+
+  const startSubzoneMove = (e, zone) => {
+    if (e.button !== 0) return
+    e.preventDefault()
+    e.stopPropagation()
+    const box = zone.backgroundStyle?.contentBox || DEFAULT_CONTENT_BOX
+    const pt = subzonePctFromEvent(e)
+    setSubzoneGesture({
+      zoneId: zone.id,
+      mode: 'move',
+      grab: { x: pt.x - box.x, y: pt.y - box.y },
+      orig: box,
+    })
+  }
+
+  const startSubzoneResize = (e, zone, dir) => {
+    if (e.button !== 0) return
+    e.preventDefault()
+    e.stopPropagation()
+    const box = zone.backgroundStyle?.contentBox || DEFAULT_CONTENT_BOX
+    setSubzoneGesture({
+      zoneId: zone.id,
+      mode: 'resize',
+      dir,
+      start: subzonePctFromEvent(e),
+      orig: box,
     })
   }
 
@@ -993,9 +1127,12 @@ function ScreenLayoutCanvas() {
   useEffect(() => {
     if (!elGesture) return
 
-    const onMove = (e) => {
+    const { mode, dir, grab, start, orig } = elGesture
+    let rafId = null
+    let latestRect = orig
+
+    const computeRect = (e) => {
       const pt = pctFromEvent(e)
-      const { mode, dir, grab, start, orig } = elGesture
       let rect = { ...orig }
 
       if (mode === 'move') {
@@ -1019,21 +1156,38 @@ function ScreenLayoutCanvas() {
         rect.x = clamp(rect.x, 0, 100 - rect.w)
         rect.y = clamp(rect.y, 0, 100 - rect.h)
       }
+      return rect
+    }
 
-      setElGesture((g) => (g ? { ...g, rect } : g))
+    // Throttle to one React update per animation frame — raw pointermove
+    // fires far more often than the screen can repaint, and each update used
+    // to re-render the whole canvas (all zones + elements), which is what
+    // made dragging feel heavy.
+    const onMove = (e) => {
+      latestRect = computeRect(e)
+      if (rafId == null) {
+        rafId = requestAnimationFrame(() => {
+          rafId = null
+          setElDragRect(latestRect)
+        })
+      }
     }
 
     const onUp = () => {
+      if (rafId != null) {
+        cancelAnimationFrame(rafId)
+        rafId = null
+      }
       const g = elGesture
       setElGesture(null)
-      if (!g) return
+      setElDragRect(null)
       const changed =
-        g.rect.x !== g.orig.x || g.rect.y !== g.orig.y || g.rect.w !== g.orig.w || g.rect.h !== g.orig.h
+        latestRect.x !== g.orig.x || latestRect.y !== g.orig.y || latestRect.w !== g.orig.w || latestRect.h !== g.orig.h
       if (!changed) {
         setSelectedElementId(g.elId)
         return
       }
-      const next = elementsRef.current.map((el) => (el.id === g.elId ? { ...el, ...g.rect } : el))
+      const next = elementsRef.current.map((el) => (el.id === g.elId ? { ...el, ...latestRect } : el))
       setElements(next)
       saveElements(next)
     }
@@ -1042,12 +1196,90 @@ function ScreenLayoutCanvas() {
     window.addEventListener('pointerup', onUp)
     window.addEventListener('pointercancel', onUp)
     return () => {
+      if (rafId != null) cancelAnimationFrame(rafId)
       window.removeEventListener('pointermove', onMove)
       window.removeEventListener('pointerup', onUp)
       window.removeEventListener('pointercancel', onUp)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [elGesture])
+
+  useEffect(() => {
+    if (!subzoneGesture) return
+    const { mode, dir, grab, start, orig } = subzoneGesture
+    let rafId = null
+    let latestRect = orig
+
+    const computeRect = (e) => {
+      const pt = subzonePctFromEvent(e)
+      let rect = { ...orig }
+      if (mode === 'move') {
+        rect.x = clamp(pt.x - grab.x, 0, 100 - orig.w)
+        rect.y = clamp(pt.y - grab.y, 0, 100 - orig.h)
+      } else {
+        const dx = pt.x - start.x
+        const dy = pt.y - start.y
+        if (dir.includes('e')) rect.w = orig.w + dx
+        if (dir.includes('s')) rect.h = orig.h + dy
+        if (dir.includes('w')) {
+          rect.x = orig.x + dx
+          rect.w = orig.w - dx
+        }
+        if (dir.includes('n')) {
+          rect.y = orig.y + dy
+          rect.h = orig.h - dy
+        }
+        rect.w = Math.max(CONTENT_BOX_MIN, rect.w)
+        rect.h = Math.max(CONTENT_BOX_MIN, rect.h)
+        rect.x = clamp(rect.x, 0, 100 - rect.w)
+        rect.y = clamp(rect.y, 0, 100 - rect.h)
+      }
+      return rect
+    }
+
+    const onMove = (e) => {
+      latestRect = computeRect(e)
+      if (rafId == null) {
+        rafId = requestAnimationFrame(() => {
+          rafId = null
+          setSubzoneDragRect(latestRect)
+        })
+      }
+    }
+
+    const onUp = () => {
+      if (rafId != null) {
+        cancelAnimationFrame(rafId)
+        rafId = null
+      }
+      const g = subzoneGesture
+      setSubzoneGesture(null)
+      setSubzoneDragRect(null)
+      const changed =
+        latestRect.x !== g.orig.x || latestRect.y !== g.orig.y || latestRect.w !== g.orig.w || latestRect.h !== g.orig.h
+      if (!changed) return
+      const zone = zonesRef.current.find((z) => z.id === g.zoneId)
+      if (!zone) return
+      patchZone(zone.id, { backgroundStyle: { ...(zone.backgroundStyle || {}), contentBox: latestRect } })
+    }
+
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onUp)
+    return () => {
+      if (rafId != null) cancelAnimationFrame(rafId)
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onUp)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subzoneGesture])
+
+  const resetSubzoneBox = (zone) => {
+    if (!zone.backgroundStyle?.contentBox) return
+    const { contentBox, ...rest } = zone.backgroundStyle
+    patchZone(zone.id, { backgroundStyle: rest })
+  }
 
   const commitZone = async (zoneId, rect) => {
     try {
@@ -1627,6 +1859,25 @@ function ScreenLayoutCanvas() {
     elAddTypeRef.current = type
     elAddInputRef.current?.click()
   }
+  // Gallery of every image already used by a free element on this layout —
+  // lets the user drop the same logo/image on canvas again without
+  // re-uploading the file.
+  const elementImageGallery = Array.from(
+    new Set(elements.filter((el) => el.imageUrl).map((el) => el.imageUrl))
+  )
+  const addElementFromGalleryUrl = (url) => {
+    const el = {
+      id: newElementId(),
+      type: 'image',
+      x: 40,
+      y: 40,
+      w: 20,
+      h: 20,
+      zIndex: nextElementZ(),
+      imageUrl: url,
+    }
+    addElementToState(el)
+  }
   const handleElAddUpload = async (e) => {
     const file = e.target.files?.[0]
     if (!file) return
@@ -1634,7 +1885,7 @@ function ScreenLayoutCanvas() {
     setError('')
     try {
       const fd = new FormData()
-      fd.append('image', file)
+      fd.append('image', await trimTransparentPadding(file))
       const { data } = await api.post('/upload', fd, {
         headers: { 'Content-Type': 'multipart/form-data' },
       })
@@ -1663,7 +1914,7 @@ function ScreenLayoutCanvas() {
     setError('')
     try {
       const fd = new FormData()
-      fd.append('image', file)
+      fd.append('image', await trimTransparentPadding(file))
       const { data } = await api.post('/upload', fd, {
         headers: { 'Content-Type': 'multipart/form-data' },
       })
@@ -1838,7 +2089,7 @@ function ScreenLayoutCanvas() {
 
       <div className="flex flex-col gap-6 lg:flex-row">
         {isAdmin && screen && layout && panelOpen && (
-          <aside className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white lg:w-72 lg:flex-none dark:border-gray-800 dark:bg-white/[0.03]">
+          <aside className="flex max-h-[75vh] min-h-0 flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white lg:sticky lg:top-24 lg:w-72 lg:max-h-[calc(100vh-7rem)] lg:flex-none dark:border-gray-800 dark:bg-white/[0.03]">
             <div className="flex border-b border-gray-100 dark:border-gray-800">
 {[
                     { key: 'produits', label: 'Produits' },
@@ -2450,8 +2701,9 @@ function ScreenLayoutCanvas() {
                       </p>
                     </div>
 
-                    {/* Vaut pour le prix Extra ET pour les paliers (1/2/3 viandes)
-                        rendus par TierPricingHeader dans une zone bannière. */}
+                    {/* Vaut pour le prix Extra, les paliers (1/2/3 viandes) rendus par
+                        TierPricingHeader dans une zone bannière, ET pour le badge prix
+                        de chaque produit dans une zone grille/liste. */}
                     <BadgeTypePicker
                       value={styleCfg.badgeType}
                       dark={styleCfg.dark !== false}
@@ -2530,6 +2782,25 @@ function ScreenLayoutCanvas() {
                     className="hidden"
                     onChange={handleElAddUpload}
                   />
+
+                  {elementImageGallery.length > 0 && (
+                    <div>
+                      <Label>Galerie (images déjà utilisées)</Label>
+                      <div className="grid grid-cols-5 gap-1.5">
+                        {elementImageGallery.map((url) => (
+                          <button
+                            key={url}
+                            type="button"
+                            onClick={() => addElementFromGalleryUrl(url)}
+                            title="Ajouter cette image au canvas"
+                            className="aspect-square overflow-hidden rounded-md border border-gray-200 bg-white transition-colors hover:border-brand-400 dark:border-gray-700 dark:bg-gray-900"
+                          >
+                            <img src={url} alt="" className="h-full w-full object-contain" />
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
@@ -2764,6 +3035,37 @@ function ScreenLayoutCanvas() {
                               disabled={elUploading}
                             />
                           </label>
+
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <Label htmlFor={`el-w-${selectedElement.id}`}>Largeur (px, max {EL_IMAGE_MAX_PX})</Label>
+                              <Input
+                                id={`el-w-${selectedElement.id}`}
+                                type="number"
+                                min="1"
+                                max={EL_IMAGE_MAX_PX}
+                                value={pctToPxW(selectedElement.w)}
+                                onChange={(e) => {
+                                  const px = clamp(Number(e.target.value) || 1, 1, EL_IMAGE_MAX_PX)
+                                  patchElementById(selectedElement.id, { w: pxToPctW(px) })
+                                }}
+                              />
+                            </div>
+                            <div>
+                              <Label htmlFor={`el-h-${selectedElement.id}`}>Hauteur (px, max {EL_IMAGE_MAX_PX})</Label>
+                              <Input
+                                id={`el-h-${selectedElement.id}`}
+                                type="number"
+                                min="1"
+                                max={EL_IMAGE_MAX_PX}
+                                value={pctToPxH(selectedElement.h)}
+                                onChange={(e) => {
+                                  const px = clamp(Number(e.target.value) || 1, 1, EL_IMAGE_MAX_PX)
+                                  patchElementById(selectedElement.id, { h: pxToPctH(px) })
+                                }}
+                              />
+                            </div>
+                          </div>
                         </div>
                       )}
 
@@ -2873,7 +3175,7 @@ function ScreenLayoutCanvas() {
               onPointerDown={(e) => {
                 if (e.target === canvasRef.current) setSelectedId(null)
               }}
-              className="relative w-full select-none overflow-hidden rounded-lg border-2 border-gray-300 bg-gray-900 shadow-xl dark:border-gray-700"
+              className="relative w-full select-none overflow-hidden border-2 border-gray-300 bg-gray-900 shadow-xl dark:border-gray-700"
               style={{
                 aspectRatio: '16 / 9',
                 ...(screenBg ? backgroundCss(screenBg) : {}),
@@ -2898,6 +3200,19 @@ function ScreenLayoutCanvas() {
                 const isList = zone.zoneType === 'list' || zone.zoneType === 'carousel'
                 const rows = zone.gridConfig?.rows || 1
                 const cols = zone.gridConfig?.cols || 1
+
+                // Sub-zone (T9) — the product container's own box within the
+                // zone, live-updated from subzoneDragRect while its handles are
+                // being dragged so the content repositions in real time.
+                const isEditingSubzone = subzoneEditId === zone.id
+                const activeContentBox =
+                  (isEditingSubzone && subzoneDragRect) || zone.backgroundStyle?.contentBox || DEFAULT_CONTENT_BOX
+                const contentBoxStyle = {
+                  left: `${activeContentBox.x}%`,
+                  top: `${activeContentBox.y}%`,
+                  width: `${activeContentBox.w}%`,
+                  height: `${activeContentBox.h}%`,
+                }
 
                 const zoneEmpty =
                   CONTENT_ZONE_TYPES.includes(zone.zoneType) && (zone.items?.length ?? 0) === 0
@@ -3022,7 +3337,7 @@ function ScreenLayoutCanvas() {
                       clash
                         ? 'border-error-500 bg-error-50/90 ring-2 ring-error-500/50 dark:bg-error-500/20'
                         : 'border-gray-700'
-                    } ${isAdmin ? 'cursor-move' : ''} ${
+                    } ${isAdmin ? 'cursor-move touch-none' : ''} ${
                       active && !clash
                         ? 'ring-2 ring-brand-500/60'
                         : !active && selectedId === zone.id
@@ -3046,18 +3361,59 @@ function ScreenLayoutCanvas() {
                       >
                         {zone.name || `Zone #${zone.id}`}
                       </p>
-                      <span className="rounded px-1 py-px text-[9px] font-medium uppercase text-gray-600 dark:text-gray-300" style={{ backgroundColor: 'rgba(0,0,0,0.15)' }}>
-                        {ZONE_TYPE_LABELS[zone.zoneType] || zone.zoneType}
-                      </span>
-                      {zoneWarnLabel && (
-                        <span className="rounded bg-warning-500/20 px-1 py-px text-[9px] font-medium text-warning-600 dark:bg-warning-500/15 dark:text-warning-400">
-                          {zoneWarnLabel}
+                      <div className="flex flex-none items-center gap-1">
+                        <span className="rounded px-1 py-px text-[9px] font-medium uppercase text-gray-600 dark:text-gray-300" style={{ backgroundColor: 'rgba(0,0,0,0.15)' }}>
+                          {ZONE_TYPE_LABELS[zone.zoneType] || zone.zoneType}
                         </span>
-                      )}
+                        {zoneWarnLabel && (
+                          <span className="rounded bg-warning-500/20 px-1 py-px text-[9px] font-medium text-warning-600 dark:bg-warning-500/15 dark:text-warning-400">
+                            {zoneWarnLabel}
+                          </span>
+                        )}
+                        {isAdmin && (isGrid || isList) && selectedId === zone.id && (
+                          <>
+                            <button
+                              type="button"
+                              onPointerDown={(e) => e.stopPropagation()}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setSubzoneEditId((cur) => (cur === zone.id ? null : zone.id))
+                              }}
+                              title="Personnaliser la zone de contenu"
+                              className={`flex size-4 flex-none items-center justify-center rounded ${
+                                isEditingSubzone
+                                  ? 'bg-brand-500 text-white'
+                                  : 'bg-black/15 text-gray-700 hover:bg-brand-500/30 hover:text-brand-700 dark:text-gray-200'
+                              }`}
+                            >
+                              <PencilIcon className="size-2.5" />
+                            </button>
+                            {zone.backgroundStyle?.contentBox && (
+                              <button
+                                type="button"
+                                onPointerDown={(e) => e.stopPropagation()}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  resetSubzoneBox(zone)
+                                }}
+                                title="Réinitialiser la zone de contenu"
+                                className="flex size-4 flex-none items-center justify-center rounded bg-black/15 text-gray-700 hover:bg-error-500/30 hover:text-error-700 dark:text-gray-200"
+                              >
+                                <TrashBinIcon className="size-2.5" />
+                              </button>
+                            )}
+                          </>
+                        )}
+                      </div>
                     </div>
 
                     <ZoneBadgePreview config={zone.badgeConfig} accent={zAccent} />
 
+                    <div
+                      ref={isEditingSubzone ? subzoneAreaRef : undefined}
+                      className="relative min-h-0 flex-1"
+                    >
+                    <div className="absolute flex flex-col" style={contentBoxStyle}>
                     {(isGrid || isList) && (zone.items?.length ?? 0) > 0 ? (
                       isGrid ? (
                         <div
@@ -3246,13 +3602,31 @@ function ScreenLayoutCanvas() {
                         </p>
                       </div>
                     )}
+                    </div>
+
+                    {isAdmin && isEditingSubzone && (
+                      <div
+                        onPointerDown={(e) => startSubzoneMove(e, zone)}
+                        className="absolute z-20 cursor-move touch-none rounded-sm ring-2 ring-brand-500/80"
+                        style={contentBoxStyle}
+                      >
+                        {RESIZE_HANDLES.map(({ dir, cls }) => (
+                          <span
+                            key={dir}
+                            onPointerDown={(e) => startSubzoneResize(e, zone, dir)}
+                            className={`absolute z-20 size-2.5 touch-none rounded-sm border border-white bg-brand-500 ${cls}`}
+                          />
+                        ))}
+                      </div>
+                    )}
+                    </div>
 
                     {isAdmin &&
                       RESIZE_HANDLES.map(({ dir, cls }) => (
                         <span
                           key={dir}
                           onPointerDown={(e) => startResize(e, zone, dir)}
-                          className={`absolute z-10 size-2.5 rounded-sm border border-white bg-brand-500 ${cls}`}
+                          className={`absolute z-10 size-2.5 touch-none rounded-sm border border-white bg-brand-500 ${cls}`}
                         />
                       ))}
                   </div>
@@ -3266,7 +3640,7 @@ function ScreenLayoutCanvas() {
               {panelTab === 'elements' &&
                 elements.map((el) => {
                   const active = elGesture?.elId === el.id
-                  const rect = active ? elGesture.rect : el
+                  const rect = active && elDragRect ? elDragRect : el
                   return (
                     <div
                       key={el.id}
@@ -3275,11 +3649,11 @@ function ScreenLayoutCanvas() {
                         e.stopPropagation()
                         setSelectedElementId(el.id)
                       }}
-                      className={`absolute border-2 border-dashed ${
+                      className={`absolute outline-2 outline-dashed outline-offset-[7.5px] ${
                         selectedElementId === el.id
-                          ? 'border-brand-500'
-                          : 'border-transparent hover:border-brand-300'
-                      } ${isAdmin ? 'cursor-move' : ''}`}
+                          ? 'outline-brand-500'
+                          : 'outline-transparent hover:outline-brand-300'
+                      } ${isAdmin ? 'cursor-move touch-none' : ''}`}
                       style={{
                         left: `${rect.x}%`,
                         top: `${rect.y}%`,
@@ -3297,7 +3671,12 @@ function ScreenLayoutCanvas() {
                           {el.text}
                         </div>
                       ) : el.imageUrl ? (
-                        <img src={el.imageUrl} alt="" className="h-full w-full object-contain" />
+                        <img
+                          src={el.imageUrl}
+                          alt=""
+                          draggable={false}
+                          className="h-full w-full object-fill"
+                        />
                       ) : (
                         <div className="flex h-full w-full items-center justify-center bg-gray-700/50 text-[10px] text-gray-300">
                           {el.type}
@@ -3305,11 +3684,11 @@ function ScreenLayoutCanvas() {
                       )}
                       {isAdmin && (
                         <>
-                          {RESIZE_HANDLES.map(({ dir, cls }) => (
+                          {EL_RESIZE_HANDLES.map(({ dir, cls }) => (
                             <span
                               key={dir}
                               onPointerDown={(e) => startElResize(e, el, dir)}
-                              className={`absolute z-10 size-2.5 rounded-sm border border-white bg-brand-500 ${cls}`}
+                              className={`absolute z-10 size-2.5 touch-none rounded-sm border border-white bg-brand-500 ${cls}`}
                             />
                           ))}
                         </>
