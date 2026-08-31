@@ -82,8 +82,8 @@ function GridImageCell({ zi, template, scale = 1 }) {
   if (!imageUrl) return null
   const ts = templateStyle(template)
   const s = ts.scale * scale
-  const maxH = Math.min(96, Math.round(78 * s))
-  const maxW = Math.min(98, Math.round(85 * s))
+  const maxH = Math.min(100, Math.round(78 * s))
+  const maxW = Math.min(100, Math.round(85 * s))
   // cqmin (% of the cell's smaller side), not fixed px: keeps the name
   // proportional to the image above it when gridConfig rows/cols change the
   // cell size, instead of only tracking the zone-wide `scale`.
