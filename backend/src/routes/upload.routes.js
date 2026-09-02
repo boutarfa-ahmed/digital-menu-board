@@ -32,6 +32,25 @@ router.post('/', auth, requireRole('admin'), (req, res, next) => {
   }
 });
 
+router.post('/font', auth, requireRole('admin'), (req, res, next) => {
+  upload.single('font')(req, res, (err) => {
+    if (err) {
+      if (err.code === 'LIMIT_FILE_SIZE') return res.status(400).json({ error: 'File too large. Max 50MB' });
+      return next(err);
+    }
+    next();
+  });
+}, async (req, res, next) => {
+  try {
+    const result = await cloudinaryService.uploadFont(req.file);
+    res.json(result);
+  } catch (err) {
+    const isValidationError = err.message.startsWith('No font') || err.message.startsWith('Invalid') || err.message.startsWith('File too');
+    if (isValidationError) return res.status(400).json({ error: err.message });
+    next(err);
+  }
+});
+
 // Cloudinary public_ids keep their folder prefix ("galaxyfood/abc123"), and a
 // plain :public_id param stops at the slash — so this route never matched a
 // real id and every delete 404'd, leaving the images orphaned on Cloudinary

@@ -75,6 +75,16 @@ const ELEMENT_KIND_LABELS = {
   price: 'Badge prix',
 }
 
+// Self-hosted families only (frontend-tv/src/fonts.css) — never a live Google
+// Fonts URL, so a TV that boots offline still has a font to fall back on.
+// Empty value = no override, uses the kind's own default (font-menu-header).
+const FONT_OPTIONS = [
+  { value: '', label: 'Par défaut' },
+  { value: 'Inter', label: 'Inter' },
+  { value: 'Playfair Display', label: 'Playfair Display' },
+  { value: 'Roboto Flex', label: 'Roboto Flex' },
+]
+
 // Les deux designs de badge prix (frontend-tv/src/theme/designTokens.js).
 // Indépendant du couple sombre/clair : 2 types x 2 fonds = 4 rendus.
 const BADGE_TYPES = ['type1', 'type2']
@@ -862,6 +872,11 @@ function ScreenLayoutCanvas() {
 
   const [items, setItems] = useState([])
   const [categories, setCategories] = useState([])
+  const [libraryFonts, setLibraryFonts] = useState([])
+  const [libraryCategories, setLibraryCategories] = useState([])
+  const [libraryCatId, setLibraryCatId] = useState(null)
+  const [bgLibraryOpen, setBgLibraryOpen] = useState(false)
+  const [bgLibraryCatId, setBgLibraryCatId] = useState(null)
   const [panelOpen, setPanelOpen] = useState(true)
   const [panelTab, setPanelTab] = useState('produits')
   const [catFilter, setCatFilter] = useState('all')
@@ -925,13 +940,24 @@ function ScreenLayoutCanvas() {
       api.get(`/screens/${id}/layout?preview=1`).then((r) => r.data),
       api.get('/categories').then((r) => r.data),
       api.get('/menu').then((r) => r.data),
+      api
+        .get('/library/categories')
+        .then((r) => r.data)
+        .catch(() => []),
     ])
-      .then(([scr, lay, cats, menu]) => {
+      .then(([scr, lay, cats, menu, libCats]) => {
         setScreen(scr)
         setLayout(lay)
         setElements(lay?.settings?.elements || [])
         setCategories(Array.isArray(cats) ? cats : [])
         setItems(Array.isArray(menu) ? menu : [])
+        const libArr = Array.isArray(libCats) ? libCats : []
+        const fonts = libArr
+          .filter((c) => c.type === 'font')
+          .flatMap((c) => c.assets || [])
+          .filter((a) => a.name)
+        setLibraryFonts(fonts)
+        setLibraryCategories(libArr.filter((c) => c.type !== 'font'))
       })
       .catch((err) => setError(err.response?.data?.error || 'Impossible de charger le layout'))
       .finally(() => setLoading(false))
@@ -1881,6 +1907,25 @@ function ScreenLayoutCanvas() {
     }
     addElementToState(el)
   }
+  // Same mechanism as addElementFromGalleryUrl — the asset's URL is already
+  // hosted, so no upload step needed. Jump to the "Éléments" tab afterward:
+  // that's what activates the on-canvas drag/select overlay for it (see the
+  // `panelTab === 'elements'` overlay below) instead of duplicating that
+  // logic for a second tab.
+  const addElementFromLibraryAsset = (asset) => {
+    const el = {
+      id: newElementId(),
+      type: 'image',
+      x: 40,
+      y: 40,
+      w: 20,
+      h: 20,
+      zIndex: nextElementZ(),
+      imageUrl: asset.url,
+    }
+    addElementToState(el)
+    setPanelTab('elements')
+  }
   const handleElAddUpload = async (e) => {
     const file = e.target.files?.[0]
     if (!file) return
@@ -2094,18 +2139,20 @@ function ScreenLayoutCanvas() {
         {isAdmin && screen && layout && panelOpen && (
           <aside className="flex max-h-[75vh] min-h-0 flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white lg:sticky lg:top-24 lg:w-72 lg:max-h-[calc(100vh-7rem)] lg:flex-none dark:border-gray-800 dark:bg-white/[0.03]">
             <div className="flex border-b border-gray-100 dark:border-gray-800">
-{[
+              <div className="flex min-w-0 flex-1 overflow-x-auto">
+                {[
                     { key: 'produits', label: 'Produits' },
                     { key: 'presets', label: 'Presets' },
                     { key: 'zone', label: 'Config' },
                     { key: 'style', label: 'Style' },
                     { key: 'elements', label: 'Éléments' },
+                    { key: 'library', label: 'Bibliothèque' },
                   ].map((t) => (
                 <button
                   key={t.key}
                   type="button"
                   onClick={() => setPanelTab(t.key)}
-                  className={`flex flex-1 items-center justify-center gap-1.5 px-2 py-2.5 text-sm font-medium transition-colors ${
+                  className={`flex flex-none items-center justify-center gap-1.5 whitespace-nowrap px-2.5 py-2.5 text-sm font-medium transition-colors ${
                     panelTab === t.key
                       ? 'border-b-2 border-brand-500 text-brand-600 dark:text-brand-400'
                       : 'border-b-2 border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
@@ -2117,6 +2164,7 @@ function ScreenLayoutCanvas() {
                   )}
                 </button>
               ))}
+              </div>
               <button
                 type="button"
                 onClick={() => setPanelOpen(false)}
@@ -2593,6 +2641,16 @@ function ScreenLayoutCanvas() {
                             disabled={zoneImgUploading}
                           />
                         </label>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setBgLibraryCatId(null)
+                            setBgLibraryOpen((v) => !v)
+                          }}
+                          className="rounded-lg border border-dashed border-gray-300 px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:border-brand-300 hover:text-brand-600 dark:border-gray-700 dark:text-gray-300 dark:hover:text-brand-400"
+                        >
+                          Bibliothèque
+                        </button>
                         {styleCfg.bgImage ? (
                           <button
                             type="button"
@@ -2610,6 +2668,65 @@ function ScreenLayoutCanvas() {
                           className="mt-2 h-24 w-full rounded-lg border border-gray-200 object-cover dark:border-gray-700"
                         />
                       ) : null}
+
+                      {bgLibraryOpen && (
+                        <div className="mt-2 space-y-2 rounded-lg border border-gray-200 p-2 dark:border-gray-700">
+                          {libraryCategories.length === 0 ? (
+                            <p className="text-xs text-gray-400">Bibliothèque vide.</p>
+                          ) : bgLibraryCatId == null ? (
+                            <div className="space-y-1">
+                              {libraryCategories.map((cat) => (
+                                <button
+                                  key={cat.id}
+                                  type="button"
+                                  onClick={() => setBgLibraryCatId(cat.id)}
+                                  className="flex w-full items-center justify-between rounded-md border border-gray-200 px-2.5 py-1.5 text-left text-xs font-medium text-gray-700 transition-colors hover:border-brand-300 hover:text-brand-600 dark:border-gray-700 dark:text-gray-300"
+                                >
+                                  <span>{cat.name}</span>
+                                  <span className="text-gray-400">{(cat.assets || []).length}</span>
+                                </button>
+                              ))}
+                            </div>
+                          ) : (
+                            (() => {
+                              const cat = libraryCategories.find((c) => c.id === bgLibraryCatId)
+                              const assets = cat?.assets || []
+                              return (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => setBgLibraryCatId(null)}
+                                    className="flex items-center gap-1 text-xs font-medium text-brand-600 dark:text-brand-400"
+                                  >
+                                    <ChevronLeftIcon className="size-3.5" />
+                                    {cat?.name}
+                                  </button>
+                                  {assets.length === 0 ? (
+                                    <p className="text-xs text-gray-400">Vide.</p>
+                                  ) : (
+                                    <div className="grid grid-cols-4 gap-1.5">
+                                      {assets.map((asset) => (
+                                        <button
+                                          key={asset.id}
+                                          type="button"
+                                          onClick={() => {
+                                            patchStyle({ bgImage: asset.url })
+                                            setBgLibraryOpen(false)
+                                          }}
+                                          title={asset.name || ''}
+                                          className="aspect-square overflow-hidden rounded-md border border-gray-200 bg-white transition-colors hover:border-brand-400 dark:border-gray-700 dark:bg-gray-900"
+                                        >
+                                          <img src={asset.url} alt="" className="h-full w-full object-cover" />
+                                        </button>
+                                      ))}
+                                    </div>
+                                  )}
+                                </>
+                              )
+                            })()
+                          )}
+                        </div>
+                      )}
                     </div>
 
                     {[
@@ -2952,6 +3069,35 @@ function ScreenLayoutCanvas() {
                             )}
                           </div>
 
+                          {['plain', 'hero'].includes(selectedElement.kind || 'plain') && (
+                            <div>
+                              <Label htmlFor={`el-font-${selectedElement.id}`}>Police</Label>
+                              <select
+                                id={`el-font-${selectedElement.id}`}
+                                value={selectedElement.fontFamily || ''}
+                                onChange={(e) =>
+                                  patchElementById(selectedElement.id, { fontFamily: e.target.value || undefined })
+                                }
+                                className="w-full rounded-lg border border-gray-300 bg-transparent px-3 py-2.5 text-sm text-gray-800 outline-none focus:border-brand-300 focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:text-white/90"
+                              >
+                                {FONT_OPTIONS.map((f) => (
+                                  <option key={f.value} value={f.value}>
+                                    {f.label}
+                                  </option>
+                                ))}
+                                {libraryFonts.length > 0 && (
+                                  <optgroup label="Bibliothèque">
+                                    {libraryFonts.map((f) => (
+                                      <option key={f.id} value={f.name}>
+                                        {f.name}
+                                      </option>
+                                    ))}
+                                  </optgroup>
+                                )}
+                              </select>
+                            </div>
+                          )}
+
                           {['banner', 'price'].includes(selectedElement.kind) && (
                             <div>
                               <Label>Fond</Label>
@@ -3127,6 +3273,68 @@ function ScreenLayoutCanvas() {
                   )}
                 </div>
               </>
+            )}
+
+            {panelTab === 'library' && (
+              <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
+                <p className="text-xs text-gray-400">
+                  Images/textures de la Bibliothèque — un clic les ajoute comme élément libre sur le canvas.
+                </p>
+
+                {libraryCategories.length === 0 ? (
+                  <p className="text-sm text-gray-400">
+                    Bibliothèque vide. Ajoutez des catégories depuis la page Bibliothèque.
+                  </p>
+                ) : libraryCatId == null ? (
+                  <div className="space-y-1.5">
+                    {libraryCategories.map((cat) => (
+                      <button
+                        key={cat.id}
+                        type="button"
+                        onClick={() => setLibraryCatId(cat.id)}
+                        className="flex w-full items-center justify-between rounded-lg border border-gray-200 px-3 py-2.5 text-left text-sm font-medium text-gray-700 transition-colors hover:border-brand-300 hover:text-brand-600 dark:border-gray-700 dark:text-gray-300"
+                      >
+                        <span>{cat.name}</span>
+                        <span className="text-xs text-gray-400">{(cat.assets || []).length}</span>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  (() => {
+                    const cat = libraryCategories.find((c) => c.id === libraryCatId)
+                    const assets = cat?.assets || []
+                    return (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => setLibraryCatId(null)}
+                          className="flex items-center gap-1 text-sm font-medium text-brand-600 dark:text-brand-400"
+                        >
+                          <ChevronLeftIcon className="size-4" />
+                          {cat?.name}
+                        </button>
+                        {assets.length === 0 ? (
+                          <p className="text-sm text-gray-400">Aucun élément dans cette catégorie.</p>
+                        ) : (
+                          <div className="grid grid-cols-3 gap-1.5">
+                            {assets.map((asset) => (
+                              <button
+                                key={asset.id}
+                                type="button"
+                                onClick={() => addElementFromLibraryAsset(asset)}
+                                title="Ajouter au canvas"
+                                className="aspect-square overflow-hidden rounded-md border border-gray-200 bg-white transition-colors hover:border-brand-400 dark:border-gray-700 dark:bg-gray-900"
+                              >
+                                <img src={asset.url} alt={asset.name || ''} className="h-full w-full object-cover" />
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </>
+                    )
+                  })()
+                )}
+              </div>
             )}
           </aside>
         )}

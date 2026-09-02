@@ -52,6 +52,7 @@ const authRoutes = require('./routes/auth.routes');
 const screenRoutes = require('./routes/screen.routes');
 const layoutRoutes = require('./routes/layout.routes');
 const themeRoutes = require('./routes/theme.routes');
+const libraryRoutes = require('./routes/library.routes');
 
 app.use('/api/menu', menuRoutes);
 app.use('/api/categories', categoryRoutes);
@@ -60,6 +61,7 @@ app.use('/api/auth', authLimiter, authRoutes);
 app.use('/api/screens', screenRoutes);
 app.use('/api', layoutRoutes);
 app.use('/api/themes', themeRoutes);
+app.use('/api/library', libraryRoutes);
 
 app.get('/api', (req, res) => {
   res.json({ message: 'GalaxyFood API is running' });

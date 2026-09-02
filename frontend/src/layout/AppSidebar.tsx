@@ -48,6 +48,11 @@ const navItems: NavItem[] = [
     path: "/dashboard/screens",
   },
   {
+    name: "Bibliothèque",
+    icon: <PageIcon />,
+    path: "/dashboard/library",
+  },
+  {
     name: "Tarifs",
     icon: <BoxIconLine />,
     path: "/dashboard/pricing",

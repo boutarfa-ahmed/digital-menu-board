@@ -120,6 +120,37 @@ model Zone {
   @@index([layoutId])
 }
 
+// Reusable design assets (torn-paper textures, food photo cutouts, etc.)
+// organized by category, so the screen-layout builder can pick from a
+// shared pool instead of the admin re-uploading the same image per zone.
+model LibraryCategory {
+  id        Int            @id @default(autoincrement())
+  name      String         @unique // "Papier déchiré", "Tacos", "Burger", "Textures"
+  // "image": food/decor photo cutouts, pickable as a free element on the
+  // canvas. "texture": tileable/full-bleed backgrounds, pickable as a zone's
+  // bgImage. "font": uploaded font files (.woff2/.ttf/...), registered as
+  // @font-face rules by LibraryFontFaces on both frontends and pickable as a
+  // text element's font. Set once per category (not per asset) — decided by
+  // how the category's content gets used in the screen-layout builder.
+  // Enforced by CATEGORY_TYPES in src/routes/library.routes.js; keep in sync.
+  type      String         @default("image") // "image" | "texture" | "font"
+  order     Int            @default(0) // display order in the picker
+  assets    LibraryAsset[]
+  createdAt DateTime       @default(now())
+}
+
+model LibraryAsset {
+  id         Int             @id @default(autoincrement())
+  categoryId Int
+  category   LibraryCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  name       String?         // optional label shown in the picker
+  url        String          // Cloudinary URL, uploaded via the existing /api/upload endpoint
+  order      Int             @default(0)
+  createdAt  DateTime        @default(now())
+
+  @@index([categoryId])
+}
+
 model ZoneItem {
   id        Int       @id @default(autoincrement())
   zoneId    Int

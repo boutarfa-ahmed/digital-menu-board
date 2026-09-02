@@ -73,6 +73,43 @@ async function uploadImage(file, itemId) {
   return { url: result.secure_url, public_id: result.public_id };
 }
 
+const ALLOWED_FONT_EXTENSIONS = ['.ttf', '.otf', '.woff', '.woff2'];
+const MAX_FONT_SIZE = 10 * 1024 * 1024; // 10MB — generous for a single font file
+
+// Font files skip the sharp/webp pipeline entirely — there's nothing to
+// re-encode, and Cloudinary stores them as opaque "raw" resources. Browser
+// mimetype detection for fonts is unreliable (many send
+// application/octet-stream for .ttf), so validation goes by extension.
+function validateFontFile(file) {
+  if (!file) {
+    return { valid: false, error: 'No font file provided' };
+  }
+  const ext = (file.originalname.match(/\.[^.]+$/) || [''])[0].toLowerCase();
+  if (!ALLOWED_FONT_EXTENSIONS.includes(ext)) {
+    return { valid: false, error: `Invalid font type: ${ext || 'unknown'}. Allowed: ${ALLOWED_FONT_EXTENSIONS.join(', ')}` };
+  }
+  if (file.size > MAX_FONT_SIZE) {
+    return { valid: false, error: `File too large. Max ${MAX_FONT_SIZE / 1024 / 1024}MB` };
+  }
+  return { valid: true };
+}
+
+async function uploadFont(file) {
+  const validation = validateFontFile(file);
+  if (!validation.valid) {
+    throw new Error(validation.error);
+  }
+
+  const dataURI = toDataURI(file.buffer, file.mimetype || 'application/octet-stream');
+  const result = await cloudinary.uploader.upload(dataURI, {
+    folder: 'galaxyfood/fonts',
+    resource_type: 'raw',
+    public_id: file.originalname.replace(/\.[^.]+$/, ''),
+  });
+
+  return { url: result.secure_url, public_id: result.public_id };
+}
+
 async function deleteImage(publicId) {
   if (!publicId) {
     throw new Error('No public_id provided');
@@ -83,5 +120,6 @@ async function deleteImage(publicId) {
 
 module.exports = {
   uploadImage,
+  uploadFont,
   deleteImage,
 };
