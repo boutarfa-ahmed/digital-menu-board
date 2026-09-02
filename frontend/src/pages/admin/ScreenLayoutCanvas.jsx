@@ -1356,6 +1356,7 @@ function ScreenLayoutCanvas() {
           col: it.col,
           index: it.index,
           order: it.order,
+          qty: it.qty,
         })),
       }
       const zones = [
@@ -1378,6 +1379,7 @@ function ScreenLayoutCanvas() {
             col: it.col,
             index: it.index,
             order: it.order,
+            qty: it.qty,
           })),
         })),
         restored,
@@ -1625,6 +1627,7 @@ function ScreenLayoutCanvas() {
             col: it.col,
             index: it.index,
             order: it.order,
+            qty: it.qty,
           })),
         })),
       }

@@ -483,6 +483,18 @@ async function replaceLayout(prisma, screenId, input) {
     // updates keep existing zones untouched)
     if (hasZones) {
       const existingZones = await tx.zone.findMany({ where: { layoutId: layout.id } });
+
+      // A zone id in the payload has to be one of *this* layout's zones.
+      // tx.zone.update() below matches on id alone, so a stray id (a stale
+      // builder tab, a copy-pasted payload) would silently overwrite a zone
+      // belonging to another screen's layout — and the wrong TV would change.
+      const existingIds = new Set(existingZones.map((z) => z.id));
+      for (const z of zonesInput) {
+        if (z.id != null && !existingIds.has(parseInt(z.id, 10))) {
+          throw new ZoneValidationError(`Zone ${zoneLabel(z)} does not belong to this layout`);
+        }
+      }
+
       const keepIds = zonesInput.filter((z) => z.id).map((z) => parseInt(z.id, 10));
       for (const z of existingZones) {
         if (!keepIds.includes(z.id)) {
@@ -511,6 +523,7 @@ async function replaceLayout(prisma, screenId, input) {
               col: it.col ?? null,
               index: it.index ?? i,
               order: it.order ?? i,
+              qty: it.qty !== undefined ? Number(it.qty) || null : null,
             })),
           });
         }

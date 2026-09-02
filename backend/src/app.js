@@ -13,6 +13,14 @@ const errorHandler = require('./middleware/errorHandler');
 
 const app = express();
 
+// Behind a reverse proxy (Caddy locally, Render in production) the socket
+// address is the proxy's, identical for every visitor — so express-rate-limit
+// bucketed all login attempts together and one person fat-fingering their
+// password 20 times locked out everybody else. `1`, not `true`: trust exactly
+// the one hop we put there. Trusting every hop would let a client forge
+// X-Forwarded-For and sidestep the limiter entirely.
+app.set('trust proxy', 1);
+
 app.use(helmet());
 
 // CORS: an explicit allowlist in production, permissive in development so the
