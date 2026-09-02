@@ -20,7 +20,7 @@ const PRICE_SCALE = 1.17
 
 // image-title-desc-price template: pre-cut PNG photo (object-fit contain +
 // drop-shadow cutout, NO background rectangle behind it), bold single-line
-// Anton title, 2-line muted description, and the PriceBadge sticker (T7.2)
+// Anton title, the full muted description, and the PriceBadge sticker (T7.2)
 // below the description (larger, md). `mirror` flips the image to the opposite
 // side and right-aligns the text/price for the right half of a grid.
 export default function ImageTitleDescPriceCard({
@@ -72,7 +72,7 @@ export default function ImageTitleDescPriceCard({
         </h3>
         {description ? (
           <p
-            className="line-clamp-2 mt-1 w-full font-body leading-relaxed text-menu-text-muted"
+            className="mt-1 w-full font-body leading-relaxed text-menu-text-muted"
             style={{ fontSize: descSize }}
           >
             {description}
