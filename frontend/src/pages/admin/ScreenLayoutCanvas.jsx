@@ -15,6 +15,7 @@ import ZoneBadgePreview from './canvas/ZoneBadgePreview'
 import CardTemplatePreview from './canvas/CardTemplatePreview'
 import StyledZoneContent from './canvas/StyledZoneContent'
 import PresetThumb from './canvas/PresetThumb'
+import CardDesigner from './canvas/CardDesigner'
 import {
   GRID,
   REQUIRES_GRID,
@@ -57,7 +58,15 @@ import {
   trimTransparentPadding,
   findFreePosition,
   validateLayoutForPublish,
+  defaultShowPrice,
+  zoneShowsPrice,
 } from './canvas/canvasUtils'
+import {
+  cardLayoutFor,
+  hasOwnCardLayout,
+  pruneCardLayouts,
+  sanitizeBackgroundStyle,
+} from './canvas/cardLayout'
 
 function ScreenLayoutCanvas() {
   const { id } = useParams()
@@ -103,6 +112,10 @@ function ScreenLayoutCanvas() {
   const [items, setItems] = useState([])
   const [categories, setCategories] = useState([])
   const [libraryFonts, setLibraryFonts] = useState([])
+  // T10 — éditeur de carte personnalisée : { zoneId, itemId | null }
+  const [cardDesigner, setCardDesigner] = useState(null)
+  const [cardSaving, setCardSaving] = useState(false)
+  const [cardError, setCardError] = useState('')
   const [libraryCategories, setLibraryCategories] = useState([])
   const [libraryCatId, setLibraryCatId] = useState(null)
   const [bgLibraryOpen, setBgLibraryOpen] = useState(false)
@@ -485,8 +498,11 @@ function ScreenLayoutCanvas() {
           rect.y = orig.y + dy
           rect.h = orig.h - dy
         }
-        rect.w = Math.max(CONTENT_BOX_MIN, rect.w)
-        rect.h = Math.max(CONTENT_BOX_MIN, rect.h)
+        // Borne haute aussi, pas seulement basse : sans elle, tirer une
+        // poignée au-delà du bord donnait w/h > 100, une valeur que le backend
+        // refuse — et la zone devenait impossible à modifier ensuite.
+        rect.w = clamp(rect.w, CONTENT_BOX_MIN, 100)
+        rect.h = clamp(rect.h, CONTENT_BOX_MIN, 100)
         rect.x = clamp(rect.x, 0, 100 - rect.w)
         rect.y = clamp(rect.y, 0, 100 - rect.h)
       }
@@ -780,6 +796,11 @@ function ScreenLayoutCanvas() {
       }))
     }
     await putZoneItems(zone, items)
+    // Le produit part : sa carte personnalisée n'a plus de sujet, on la retire
+    // du JSON au lieu de la laisser traîner pour toujours. Après
+    // putZoneItems, qui réécrit la zone avec la réponse du serveur.
+    const pruned = pruneCardLayouts(zone.backgroundStyle, items.map((it) => it.itemId))
+    if (pruned !== zone.backgroundStyle) patchZone(zone.id, { backgroundStyle: pruned })
   }
 
   const createLayout = async () => {
@@ -966,6 +987,141 @@ function ScreenLayoutCanvas() {
   }
   const resetStyle = () => {
     patchZone(selected.id, { backgroundStyle: styleCfg.dark !== undefined ? { dark: styleCfg.dark } : {} })
+  }
+
+  // T10 — carte personnalisée. Le dessin de la zone vit dans
+  // backgroundStyle.cardLayout ; un produit qui a son propre dessin le range
+  // dans backgroundStyle.cardLayouts[itemId] et retombe sur celui de la zone
+  // dès qu'on le retire.
+  const designerZone = cardDesigner ? layout?.zones?.find((z) => z.id === cardDesigner.zoneId) : null
+  const designerItem =
+    designerZone && cardDesigner?.itemId != null
+      ? designerZone.items?.find((it) => it.itemId === cardDesigner.itemId) || null
+      : null
+
+  // Images proposées au designer de carte : celles de la Bibliothèque (les
+  // catégories non-police), à plat.
+  const libraryImages = libraryCategories.flatMap((c) => c.assets || []).filter((a) => a?.url)
+
+  const uploadCardImage = async (file) => {
+    setError('')
+    try {
+      const fd = new FormData()
+      fd.append('image', await trimTransparentPadding(file))
+      const { data } = await api.post('/upload', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      return data.url
+    } catch (err) {
+      setError(err.response?.data?.error || 'Échec de l’upload de l’image')
+      return null
+    }
+  }
+
+  // Écriture directe (pas la file d'attente différée de patchZone) : le dessin
+  // représente un vrai travail, on doit savoir s'il est parti avant de fermer.
+  // Une erreur laissait sinon la fenêtre se fermer, puis le rechargement
+  // silencieux du layout effaçait le dessin sans un mot.
+  const putZoneBackgroundStyle = async (zone, backgroundStyleIn, extra = null) => {
+    let backgroundStyle = backgroundStyleIn
+    setCardSaving(true)
+    setCardError('')
+    // Répare au passage une contentBox héritée hors bornes : sinon le backend
+    // refuse toute écriture sur cette zone et le dessin ne part jamais.
+    backgroundStyle = sanitizeBackgroundStyle(backgroundStyle)
+    try {
+      await api.put(`/zones/${zone.id}`, { ...(extra || {}), backgroundStyle })
+      setLayout((l) =>
+        l
+          ? {
+              ...l,
+              zones: l.zones.map((z) =>
+                z.id === zone.id ? { ...z, ...(extra || {}), backgroundStyle } : z
+              ),
+            }
+          : l
+      )
+      setDirty(true)
+      setCardDesigner(null)
+      return true
+    } catch (err) {
+      setCardError(err.response?.data?.error || 'Impossible d’enregistrer la carte')
+      return false
+    } finally {
+      setCardSaving(false)
+    }
+  }
+
+  const saveCardLayout = (cardLayout) => {
+    if (!designerZone) return
+    const bs = designerZone.backgroundStyle || {}
+    const backgroundStyle =
+      cardDesigner.itemId != null
+        ? {
+            ...bs,
+            cardLayouts: { ...(bs.cardLayouts || {}), [String(cardDesigner.itemId)]: cardLayout },
+          }
+        : { ...bs, cardLayout }
+    return putZoneBackgroundStyle(designerZone, backgroundStyle)
+  }
+
+  // T10 (confort) — copier le dessin ouvert vers une autre zone. La zone cible
+  // passe en template "Personnalisé" et reçoit le dessin tel quel : les slots
+  // sont en % et les tailles de police dans le repère refW, donc la carte se
+  // remet d'elle-même à l'échelle de la cellule de la zone d'arrivée.
+  const copyCardLayoutTo = async (targetZoneId, cardLayout) => {
+    const target = layout?.zones?.find((z) => z.id === targetZoneId)
+    if (!target) return false
+    const backgroundStyle = sanitizeBackgroundStyle({ ...(target.backgroundStyle || {}), cardLayout })
+    setCardSaving(true)
+    setCardError('')
+    try {
+      await api.put(`/zones/${target.id}`, { cardTemplate: 'custom', backgroundStyle })
+      setLayout((l) =>
+        l
+          ? {
+              ...l,
+              zones: l.zones.map((z) =>
+                z.id === target.id ? { ...z, cardTemplate: 'custom', backgroundStyle } : z
+              ),
+            }
+          : l
+      )
+      setDirty(true)
+      return true
+    } catch (err) {
+      setCardError(err.response?.data?.error || 'Impossible de copier le dessin')
+      return false
+    } finally {
+      setCardSaving(false)
+    }
+  }
+
+  // Depuis le dessin d'un produit : en faire le dessin de toute la zone, et
+  // retirer au passage la surcharge de ce produit (sinon il garderait une copie
+  // figée qui ne suivrait plus les retouches faites au niveau de la zone).
+  const applyCardLayoutToZone = (cardLayout) => {
+    if (!designerZone) return
+    const bs = designerZone.backgroundStyle || {}
+    const rest = { ...(bs.cardLayouts || {}) }
+    if (cardDesigner?.itemId != null) delete rest[String(cardDesigner.itemId)]
+    const backgroundStyle = { ...bs, cardLayout }
+    if (Object.keys(rest).length === 0) delete backgroundStyle.cardLayouts
+    else backgroundStyle.cardLayouts = rest
+    // La zone doit passer en "Personnalisé", sinon le dessin qu'on vient d'y
+    // appliquer ne serait jamais rendu.
+    return putZoneBackgroundStyle(designerZone, backgroundStyle, { cardTemplate: 'custom' })
+  }
+
+  const clearCardOverride = () => {
+    if (!designerZone || cardDesigner?.itemId == null) return
+    const bs = designerZone.backgroundStyle || {}
+    const next = { ...(bs.cardLayouts || {}) }
+    delete next[String(cardDesigner.itemId)]
+    const backgroundStyle = { ...bs }
+    if (Object.keys(next).length === 0) delete backgroundStyle.cardLayouts
+    else backgroundStyle.cardLayouts = next
+    return putZoneBackgroundStyle(designerZone, backgroundStyle)
   }
 
   // T7.6 — screen background editor (layout.settings.background)
@@ -1607,6 +1763,54 @@ function ScreenLayoutCanvas() {
                           </option>
                         ))}
                       </select>
+
+                      {/* T9b — le prix ne dépendait que du template choisi (seule
+                          la carte « Image + détails » en portait un). Cette case
+                          le rend indépendant : un produit sans description peut
+                          garder son prix, et une carte détaillée peut le masquer. */}
+                      <label className="mt-3 flex cursor-pointer items-center gap-3 text-sm font-medium text-gray-700 dark:text-gray-400">
+                        <input
+                          type="checkbox"
+                          checked={zoneShowsPrice(selected)}
+                          onChange={(e) => patchStyle({ showPrice: e.target.checked })}
+                          className="size-4 rounded border-gray-300 text-brand-500 focus:ring-brand-500"
+                        />
+                        Afficher le prix
+                      </label>
+                      <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
+                        {styleCfg.showPrice === undefined
+                          ? `Par défaut pour ce template : ${defaultShowPrice(selected) ? 'affiché' : 'masqué'}.`
+                          : 'Choix manuel — indépendant du template et du réglage global de l’écran.'}
+                      </p>
+
+                      {/* T10 — le template « Personnalisé » n'a pas de disposition
+                          codée : elle se dessine ici, et s'applique à tous les
+                          produits de la zone (un produit peut ensuite avoir la
+                          sienne via l'icône stylo sur sa vignette). */}
+                      {selected.cardTemplate !== 'custom' && (
+                        <p className="mt-2 text-xs text-gray-400 dark:text-gray-500">
+                          Un seul produit peut quand même avoir sa carte à lui : icône stylo sur sa
+                          vignette dans le canvas.
+                        </p>
+                      )}
+
+                      {selected.cardTemplate === 'custom' && (
+                        <div className="mt-3 rounded-lg border border-brand-200 bg-brand-50/60 p-3 dark:border-brand-500/30 dark:bg-brand-500/10">
+                          <button
+                            type="button"
+                            onClick={() => setCardDesigner({ zoneId: selected.id, itemId: null })}
+                            className="flex w-full items-center justify-center gap-2 rounded-lg bg-brand-500 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-brand-600"
+                          >
+                            <PencilIcon className="size-4" />
+                            Perso — dessiner la carte
+                          </button>
+                          <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                            {selected.backgroundStyle?.cardLayout
+                              ? 'Dessin enregistré pour cette zone.'
+                              : 'Aucun dessin : la carte par défaut est utilisée en attendant.'}
+                          </p>
+                        </div>
+                      )}
                     </div>
 
                     <div>
@@ -2676,6 +2880,7 @@ function ScreenLayoutCanvas() {
                 const zBg = zStyle.bgImage ? undefined : zStyle.bg
                 const zText = zStyle.text || (zStyle.dark ? STYLE_DEFAULTS.textDark : STYLE_DEFAULTS.textLight)
                 const zFontSize = zStyle.fontSize || null
+                const zShowPrice = zoneShowsPrice(zone)
 
                 const slotDnD = (key, { targetRow, targetCol, targetIndex }, paletteAware) => ({
                   onDragOver: (e) => {
@@ -2895,11 +3100,42 @@ function ScreenLayoutCanvas() {
                                   }
                                 >
                                   <CardTemplatePreview
-                                    template={zone.cardTemplate}
+                                    template={
+                                      hasOwnCardLayout(zone, item.itemId) ? 'custom' : zone.cardTemplate
+                                    }
                                     name={item.item?.name}
                                     accent={zAccent}
                                     text={zText}
+                                    showPrice={zShowPrice}
+                                    price={item.item?.price}
+                                    layout={
+                                      zone.cardTemplate === 'custom' || hasOwnCardLayout(zone, item.itemId)
+                                        ? cardLayoutFor(zone, item.itemId)
+                                        : null
+                                    }
                                   />
+                                  {isAdmin && (
+                                    <button
+                                      type="button"
+                                      onPointerDown={(e) => e.stopPropagation()}
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        setCardDesigner({ zoneId: zone.id, itemId: item.itemId })
+                                      }}
+                                      title={
+                                        hasOwnCardLayout(zone, item.itemId)
+                                          ? 'Carte personnalisée pour ce produit'
+                                          : 'Personnaliser la carte de ce produit'
+                                      }
+                                      className={`absolute -left-1 -top-1 z-10 flex size-3.5 items-center justify-center rounded-full bg-brand-500 text-white shadow transition-opacity hover:bg-brand-600 ${
+                                        hasOwnCardLayout(zone, item.itemId)
+                                          ? 'opacity-100'
+                                          : 'opacity-0 group-hover:opacity-100'
+                                      }`}
+                                    >
+                                      <PencilIcon className="size-2" />
+                                    </button>
+                                  )}
                                   {isAdmin && (
                                     <button
                                       type="button"
@@ -2966,10 +3202,19 @@ function ScreenLayoutCanvas() {
                               >
                                 <div className="h-5 min-w-0">
                                   <CardTemplatePreview
-                                    template={zone.cardTemplate}
+                                    template={
+                                      hasOwnCardLayout(zone, item.itemId) ? 'custom' : zone.cardTemplate
+                                    }
                                     name={item.item?.name}
                                     accent={zAccent}
                                     text={zText}
+                                    showPrice={zShowPrice}
+                                    price={item.item?.price}
+                                    layout={
+                                      zone.cardTemplate === 'custom' || hasOwnCardLayout(zone, item.itemId)
+                                        ? cardLayoutFor(zone, item.itemId)
+                                        : null
+                                    }
                                   />
                                 </div>
                                 {isAdmin && (
@@ -2995,6 +3240,28 @@ function ScreenLayoutCanvas() {
                                     }}
                                     className="absolute -left-1 -top-1 z-10 h-4 w-8 rounded border border-gray-400 bg-white text-[8px] text-gray-800 dark:bg-gray-800 dark:text-white/90"
                                   />
+                                )}
+                                {isAdmin && (
+                                  <button
+                                    type="button"
+                                    onPointerDown={(e) => e.stopPropagation()}
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      setCardDesigner({ zoneId: zone.id, itemId: item.itemId })
+                                    }}
+                                    title={
+                                      hasOwnCardLayout(zone, item.itemId)
+                                        ? 'Carte personnalisée pour ce produit'
+                                        : 'Personnaliser la carte de ce produit'
+                                    }
+                                    className={`absolute -right-6 -top-1 z-10 flex size-3.5 items-center justify-center rounded-full bg-brand-500 text-white shadow transition-opacity hover:bg-brand-600 ${
+                                      hasOwnCardLayout(zone, item.itemId)
+                                        ? 'opacity-100'
+                                        : 'opacity-0 group-hover:opacity-100'
+                                    }`}
+                                  >
+                                    <PencilIcon className="size-2" />
+                                  </button>
                                 )}
                                 {isAdmin && (
                                   <button
@@ -3529,6 +3796,33 @@ function ScreenLayoutCanvas() {
           </div>
         </div>
       </Modal>
+
+      {designerZone && (
+        <CardDesigner
+          open
+          zone={designerZone}
+          item={designerItem}
+          layout={cardLayoutFor(designerZone, cardDesigner?.itemId ?? null)}
+          fonts={libraryFonts}
+          images={libraryImages}
+          onUploadImage={uploadCardImage}
+          onSave={saveCardLayout}
+          onCopyTo={copyCardLayoutTo}
+          onApplyToZone={cardDesigner?.itemId != null ? applyCardLayoutToZone : null}
+          zones={(layout?.zones || []).filter((z) => z.id !== designerZone.id)}
+          saving={cardSaving}
+          error={cardError}
+          onClearOverride={
+            cardDesigner?.itemId != null && hasOwnCardLayout(designerZone, cardDesigner.itemId)
+              ? clearCardOverride
+              : null
+          }
+          onClose={() => {
+            setCardError('')
+            setCardDesigner(null)
+          }}
+        />
+      )}
     </div>
   )
 }

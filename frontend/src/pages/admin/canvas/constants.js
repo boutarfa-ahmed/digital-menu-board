@@ -45,7 +45,7 @@ export const ZONE_TYPE_COLORS = {
   highlight: 'success',
 }
 
-export const CARD_TEMPLATES = ['default', 'compact', 'large', 'minimal', 'media', 'icon-label', 'text-only', 'image-title-desc-price']
+export const CARD_TEMPLATES = ['default', 'compact', 'large', 'minimal', 'media', 'icon-label', 'text-only', 'image-title-desc-price', 'custom']
 export const CARD_TEMPLATE_LABELS = {
   default: 'Par défaut',
   compact: 'Compact',
@@ -55,6 +55,7 @@ export const CARD_TEMPLATE_LABELS = {
   'icon-label': 'Icône + libellé',
   'text-only': 'Texte seul',
   'image-title-desc-price': 'Image + détails',
+  custom: 'Personnalisé',
 }
 
 // T8b — free element "kind" presets pour les textes (Éléments tab)

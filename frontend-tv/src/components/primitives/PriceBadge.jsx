@@ -90,8 +90,12 @@ function resolveShape(badgeType, badgeStyle) {
  * @param {'type1'|'type2'} [badgeType=type1] - which of the two designs to use
  * @param {'dark'|'light'} [variant=dark] - colour scheme (dark stays default)
  * @param {'black'|'paper'} [tone] - deprecated alias for `variant`
- * @param {number} [fontSize] - explicit integer-part pixel size; overrides the
- *   sm/md/lg presets so the badge scales up to 100px (used by free elements).
+ * @param {number|string} [fontSize] - explicit integer-part size; overrides the
+ *   sm/md/lg presets. A number is a pixel size capped at 100px (free elements).
+ *   A CSS length string (e.g. "6cqw", used by the custom card) is passed
+ *   through as-is, and the cents/currency then scale in `em` instead of the
+ *   px-anchored `calc(... + 10px)` — a fixed px add-on would not follow a
+ *   container-relative size when the card grows or shrinks.
  */
 export default function PriceBadge({
   price,
@@ -111,7 +115,12 @@ export default function PriceBadge({
   // Explicit variant wins; otherwise fall back to legacy `tone`; default dark.
   const vKey = variant === 'light' || (!variant && tone === 'paper') ? 'light' : 'dark'
   const v = VARIANT_STYLES[tKey][vKey]
-  const fontOverride = fontSize ? Math.max(8, Math.min(fontSize, 100)) : null
+  const relativeFont = typeof fontSize === 'string' && fontSize.trim() !== ''
+  const fontOverride = relativeFont
+    ? fontSize
+    : fontSize
+      ? Math.max(8, Math.min(fontSize, 100))
+      : null
 
   const shape = resolveShape(tKey, badgeStyle)
   const rotateDeg = rotate ? (typeof rotate === 'number' ? rotate : -2) : 0
@@ -136,10 +145,16 @@ export default function PriceBadge({
         <span className={`${s.int} leading-none`} style={fontOverride ? { fontSize: '1em' } : undefined}>
           {integer}
         </span>
-        <span className={`align-super leading-none ${v.cents}`} style={{ fontSize: 'calc(0.55em + 10px)' }}>
+        <span
+          className={`align-super leading-none ${v.cents}`}
+          style={{ fontSize: relativeFont ? '0.62em' : 'calc(0.55em + 10px)' }}
+        >
           ,{cents}
         </span>
-        <span className={`leading-none ${v.currency}`} style={{ fontSize: 'calc(0.65em + 10px)' }}>
+        <span
+          className={`leading-none ${v.currency}`}
+          style={{ fontSize: relativeFont ? '0.72em' : 'calc(0.65em + 10px)' }}
+        >
           {currency}
         </span>
       </div>

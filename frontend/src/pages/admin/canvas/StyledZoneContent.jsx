@@ -1,9 +1,12 @@
 import CardTemplatePreview from './CardTemplatePreview'
+import { zoneShowsPrice } from './canvasUtils'
+import { cardLayoutFor, hasOwnCardLayout } from './cardLayout'
 
 // T7.5 — final "styled" content of a zone (used in preview mode)
 function StyledZoneContent({ zone, accent, text }) {
   const items = zone.items || []
   const t = zone.cardTemplate || 'default'
+  const showPrice = zoneShowsPrice(zone)
 
   if (zone.zoneType === 'banner' || zone.zoneType === 'hero') {
     return (
@@ -29,7 +32,7 @@ function StyledZoneContent({ zone, accent, text }) {
           const item = items.find((it) => it.row === r && it.col === c)
           return item ? (
             <div key={i} className="min-h-0 min-w-0 overflow-hidden rounded">
-              <CardTemplatePreview template={t} name={item.item?.name} accent={accent} text={text} />
+              <CardTemplatePreview template={hasOwnCardLayout(zone, item.itemId) ? 'custom' : t} name={item.item?.name} accent={accent} text={text} showPrice={showPrice} price={item.item?.price} layout={t === 'custom' || hasOwnCardLayout(zone, item.itemId) ? cardLayoutFor(zone, item.itemId) : null} />
             </div>
           ) : (
             <div key={i} className="min-h-0 min-w-0 rounded border border-current opacity-25" />
@@ -47,7 +50,7 @@ function StyledZoneContent({ zone, accent, text }) {
       ) : (
         items.slice(0, 12).map((it) => (
           <div key={it.itemId} className="h-5 flex-none">
-            <CardTemplatePreview template={t} name={it.item?.name} accent={accent} text={text} />
+            <CardTemplatePreview template={hasOwnCardLayout(zone, it.itemId) ? 'custom' : t} name={it.item?.name} accent={accent} text={text} showPrice={showPrice} price={it.item?.price} layout={t === 'custom' || hasOwnCardLayout(zone, it.itemId) ? cardLayoutFor(zone, it.itemId) : null} />
           </div>
         ))
       )}

@@ -1,6 +1,8 @@
 import { cardFields, accentOf } from './cardUtils.js'
 import CardBadge from './CardBadge.jsx'
 import ImageFallback from './ImageFallback.jsx'
+import PriceBadge from '../primitives/PriceBadge.jsx'
+import { badgeStyleOf, badgeTypeOf, currencyOf } from '../../theme/designTokens'
 
 // icon-label template: square icon container + uppercase bold label below
 // (Meat/Sauces/Extra grids). Sized in cqmin (% of the smallest side of the
@@ -8,8 +10,10 @@ import ImageFallback from './ImageFallback.jsx'
 // instead of fixed px, so the same zone keeps looking right when its
 // gridConfig rows/cols change and the cell shrinks or grows — `scale` (the
 // zone's "Taille de police" control) still fine-tunes on top of that.
-export default function IconLabelCard({ item, theme, badgeConfig, scale = 1 }) {
-  const { name, imageUrl } = cardFields(item)
+// `showPrice` (zone control "Afficher le prix") adds the price sticker under
+// the label — off by default, this template never carried a price before.
+export default function IconLabelCard({ item, theme, badgeConfig, scale = 1, showPrice = false, badgeType, variant }) {
+  const { name, imageUrl, price } = cardFields(item)
   const accent = accentOf(theme)
   const boxSize = `clamp(40px, ${(55 * scale).toFixed(1)}cqmin, 220px)`
   const labelSize = `clamp(10px, ${(9 * scale).toFixed(1)}cqmin, 32px)`
@@ -36,6 +40,17 @@ export default function IconLabelCard({ item, theme, badgeConfig, scale = 1 }) {
       >
         {name}
       </span>
+      {showPrice && price != null ? (
+        <PriceBadge
+          price={price}
+          size="sm"
+          fontSize={Math.round(20 * scale)}
+          badgeStyle={badgeStyleOf(theme)}
+          badgeType={badgeTypeOf(badgeType)}
+          variant={variant}
+          currency={currencyOf(theme)}
+        />
+      ) : null}
       <CardBadge config={badgeConfig} />
     </div>
   )

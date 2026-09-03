@@ -165,3 +165,22 @@ export function validateLayoutForPublish(layout) {
   }
   return errors
 }
+
+// T9b — "Afficher le prix" : état par défaut de la case quand la zone n'a
+// jamais fait de choix explicite (backgroundStyle.showPrice absent). Reproduit
+// ce que le rendu TV faisait déjà : la carte « Image + détails » et les listes
+// portaient un prix, les vignettes image / icônes / texte seul n'en portaient
+// pas. Garder en phase avec ZoneRenderer (frontend-tv).
+export function defaultShowPrice(zone) {
+  if (!zone) return false
+  const template = zone.cardTemplate || 'default'
+  if (template === 'image-title-desc-price') return true
+  if (template === 'icon-label' || template === 'text-only') return false
+  return ['list', 'carousel', 'menu', 'banner', 'hero'].includes(zone.zoneType)
+}
+
+// Prix effectivement affiché pour une zone (choix explicite, sinon défaut).
+export function zoneShowsPrice(zone) {
+  const explicit = zone?.backgroundStyle?.showPrice
+  return typeof explicit === 'boolean' ? explicit : defaultShowPrice(zone)
+}
