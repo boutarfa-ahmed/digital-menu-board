@@ -332,11 +332,16 @@ export default function CardDesigner({
   const px = (slot, fallback = 16) => {
     const size = slot.fontSize || fallback
     if (!canvasW) return size
-    if (slot.fontUnit === 'px') return size
+    // La maquette est la cellule réelle réduite : k convertit un px de l'écran
+    // 1920x1080 en px de la maquette. Sans lui, une taille fixe et les bornes
+    // fontMin/fontMax — toutes exprimées en px d'écran — seraient comparées à
+    // des px de maquette, et l'aperçu mentirait.
+    const k = canvasW / (ref.refW || canvasW)
+    if (slot.fontUnit === 'px') return Math.max(6, size * k)
     const basis = slot.fontUnit === 'cqmin' ? Math.min(canvasW, canvasH) : canvasW
     let out = (size / (ref.refW || canvasW)) * basis
-    if (Number.isFinite(slot.fontMin)) out = Math.max(slot.fontMin, out)
-    if (Number.isFinite(slot.fontMax)) out = Math.min(slot.fontMax, out)
+    if (Number.isFinite(slot.fontMin)) out = Math.max(slot.fontMin * k, out)
+    if (Number.isFinite(slot.fontMax)) out = Math.min(slot.fontMax * k, out)
     return Math.max(6, out)
   }
 
@@ -564,6 +569,13 @@ export default function CardDesigner({
                   height: canvasH || undefined,
                   background: bg,
                   color: textColor,
+                  // Les jetons du thème n'existent que sur la TV. Sans eux, un
+                  // slot qui dit `var(--menu-accent)` rend une couleur invalide
+                  // — la maquette montrerait autre chose que l'écran. On les
+                  // redéclare ici avec les couleurs réelles de la zone.
+                  '--menu-accent': accent,
+                  '--menu-text': textColor,
+                  '--menu-text-muted': dark ? '#EEEEEE' : '#8A8A8A',
                 }}
               >
                 {slots.map((slot) => {
@@ -752,6 +764,36 @@ export default function CardDesigner({
                       className="w-full rounded-lg border border-gray-300 bg-transparent px-2 py-1.5 text-sm text-gray-800 outline-none dark:border-gray-700 dark:text-white/90"
                     />
                   </label>
+                ) : null}
+
+                {selected.type === 'image' || selected.type === 'asset' || selected.type === 'shape' ? (
+                  <div className="space-y-2">
+                    <label className="block">
+                      <span className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">
+                        Bordure
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="color"
+                          value={selected.border || STYLE_DEFAULTS.accent}
+                          onChange={(e) => patchSlot(selected.id, { border: e.target.value })}
+                          className="h-8 w-10 cursor-pointer rounded border border-gray-300 bg-transparent dark:border-gray-700"
+                        />
+                        {selected.border ? (
+                          <button
+                            type="button"
+                            onClick={() => patchSlot(selected.id, { border: undefined, borderWidth: undefined })}
+                            className="rounded-lg border border-gray-200 px-2 py-1 text-xs text-gray-500 hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-800"
+                          >
+                            Sans bordure
+                          </button>
+                        ) : (
+                          <span className="text-xs text-gray-400 dark:text-gray-500">Aucune</span>
+                        )}
+                      </div>
+                    </label>
+                    {selected.border ? numberField('Épaisseur (px)', 'borderWidth', { min: 0, max: 20, fallback: 2 }) : null}
+                  </div>
                 ) : null}
 
                 {selected.type === 'shape' ? (

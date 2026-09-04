@@ -114,7 +114,13 @@ function CustomBody({ layout, name, accent, text, price }) {
     )
   }
   return (
-    <div className={`relative h-full w-full ${layout?.clip ? 'overflow-hidden' : ''}`}>
+    <div
+      className={`relative h-full w-full ${layout?.clip ? 'overflow-hidden' : ''}`}
+      // Un slot peut porter une couleur en jeton de thème (var(--menu-accent)).
+      // Ces jetons n'existent que sur la TV : sans eux la vignette rendrait une
+      // couleur invalide au lieu de celle de la zone.
+      style={{ '--menu-accent': accent, '--menu-text': text, '--menu-text-muted': text }}
+    >
       {slots
         .filter((slot) => slot.visible !== false)
         .map((slot) => {

@@ -18,12 +18,14 @@
 //     sont générées par `node scripts/sync-schema.mjs` :
 //
 //       shared/menu-schema.js   (ICI — le seul qu'on modifie)
-//         ├─→ backend/src/shared/menuSchema.cjs     (converti en CommonJS)
+//         ├─→ backend/src/shared/menuSchema.js      (converti en CommonJS)
 //         ├─→ frontend/src/shared/menuSchema.js     (copie)
 //         └─→ frontend-tv/src/shared/menuSchema.js  (copie)
 //
-//     Après chaque modification :  npm run sync:schema  (à la racine)
-//     Le test backend `tests/schema-sync.test.js` échoue si une copie a dérivé.
+//     Après chaque modification :  npm run sync:schema   (à la racine)
+//     Pour vérifier sans rien écrire :  npm run check:schema  — sort en erreur
+//     si une copie a dérivé. Rien ne le lance automatiquement (pas de CI) :
+//     c'est à lancer à la main avant d'ouvrir une PR.
 //
 // Contraintes d'écriture (le convertisseur CommonJS en dépend) :
 //   - uniquement `export const` et `export function` (pas d'`export default`,
