@@ -1,5 +1,14 @@
 const ZONE_TYPES = ['menu', 'grid', 'list', 'carousel', 'banner', 'hero', 'highlight'];
-const CARD_TEMPLATES = ['default', 'compact', 'large', 'minimal', 'media', 'icon-label', 'text-only', 'image-title-desc-price'];
+const CARD_TEMPLATES = ['default', 'compact', 'large', 'minimal', 'media', 'icon-label', 'text-only', 'image-title-desc-price', 'custom'];
+// T10 — carte "custom" : la disposition de la carte est dessinée dans l'admin
+// et stockée en JSON, au lieu d'être codée en dur par template. Un slot = un
+// morceau de la carte (photo, nom, description, prix, ...) positionné en % de
+// la carte. Voir backgroundStyle.cardLayout (zone) / cardLayouts (par produit).
+const CARD_SLOT_TYPES = ['image', 'name', 'desc', 'price', 'qty', 'zoneBadge', 'text', 'shape', 'asset'];
+const CARD_ALIGNS = ['left', 'center', 'right'];
+const CARD_VALIGNS = ['start', 'center', 'end'];
+const CARD_SHAPES = ['rect', 'line'];
+const CARD_SLOTS_MAX = 40;
 // Zones that need a gridConfig (rows/cols) to place items
 const REQUIRES_GRID_CONFIG = ['grid', 'list', 'carousel'];
 
@@ -175,6 +184,18 @@ function validateBackgroundStyle(style) {
   if (style.badgeType !== undefined && !BADGE_TYPES.includes(style.badgeType)) {
     errors.push(`backgroundStyle.badgeType must be one of ${BADGE_TYPES.join(', ')}`);
   }
+  // T10 — carte "custom" : dessin de la zone + surcharges par produit.
+  if (style.cardLayout !== undefined) {
+    errors.push(...validateCardLayout(style.cardLayout, 'backgroundStyle.cardLayout'));
+  }
+  if (style.cardLayouts !== undefined) {
+    errors.push(...validateCardLayouts(style.cardLayouts, 'backgroundStyle.cardLayouts'));
+  }
+  // T9b — "Afficher le prix" par zone. undefined = comportement par defaut du
+  // template de carte, true/false = choix explicite de l'admin.
+  if (style.showPrice !== undefined && style.showPrice !== null && typeof style.showPrice !== 'boolean') {
+    errors.push('backgroundStyle.showPrice must be a boolean');
+  }
   if (style.fontSize !== undefined) {
     const n = Number(style.fontSize);
     if (!Number.isFinite(n) || n < FONT_SIZE_MIN || n > FONT_SIZE_MAX) {
@@ -202,6 +223,140 @@ function validateBackgroundStyle(style) {
         }
       }
     }
+  }
+  return errors;
+}
+
+// T10 — disposition d'une carte "custom". refW/refH = taille de référence en px
+// (celle de la cellule au moment du dessin) : les tailles de police sont
+// exprimées dans ce repère, le rendu TV les remet à l'échelle de la cellule
+// réelle. x/y/w/h sont des % de la carte, jamais des px.
+function validateCardLayout(layout, path) {
+  if (layout === undefined || layout === null) return [];
+  if (typeof layout !== 'object' || Array.isArray(layout)) return [`${path} must be an object`];
+  const errors = [];
+  const isNum = (n) => typeof n === 'number' && Number.isFinite(n);
+  for (const f of ['refW', 'refH']) {
+    if (layout[f] !== undefined && (!isNum(layout[f]) || layout[f] < 20 || layout[f] > 4000)) {
+      errors.push(`${path}.${f} must be a number between 20 and 4000`);
+    }
+  }
+  // clip : rogner ce qui dépasse du cadre de la carte (overflow hidden).
+  if (layout.clip !== undefined && typeof layout.clip !== 'boolean') {
+    errors.push(`${path}.clip must be a boolean`);
+  }
+  if (!Array.isArray(layout.slots)) {
+    errors.push(`${path}.slots must be an array`);
+    return errors;
+  }
+  if (layout.slots.length > CARD_SLOTS_MAX) {
+    errors.push(`${path}.slots is limited to ${CARD_SLOTS_MAX} entries`);
+  }
+  const seenIds = new Set();
+  layout.slots.forEach((slot, i) => {
+    const p = `${path}.slots[${i}]`;
+    if (!slot || typeof slot !== 'object' || Array.isArray(slot)) {
+      errors.push(`${p} must be an object`);
+      return;
+    }
+    if (typeof slot.id !== 'string' || slot.id.trim() === '') {
+      errors.push(`${p}.id must be a non-empty string`);
+    } else if (seenIds.has(slot.id)) {
+      errors.push(`${path}.slots contains duplicate id "${slot.id}"`);
+    } else {
+      seenIds.add(slot.id);
+    }
+    if (!CARD_SLOT_TYPES.includes(slot.type)) {
+      errors.push(`${p}.type must be one of ${CARD_SLOT_TYPES.join(', ')}`);
+    }
+    for (const f of ['x', 'y']) {
+      if (!isNum(slot[f]) || slot[f] < -50 || slot[f] > 150) {
+        errors.push(`${p}.${f} must be a number between -50 and 150`);
+      }
+    }
+    for (const f of ['w', 'h']) {
+      if (!isNum(slot[f]) || slot[f] < 1 || slot[f] > 200) {
+        errors.push(`${p}.${f} must be a number between 1 and 200`);
+      }
+    }
+    if (slot.fontSize !== undefined && (!isNum(slot.fontSize) || slot.fontSize < 4 || slot.fontSize > FONT_SIZE_MAX_TEXT)) {
+      errors.push(`${p}.fontSize must be a number between 4 and ${FONT_SIZE_MAX_TEXT}`);
+    }
+    if (slot.rotation !== undefined && (!isNum(slot.rotation) || slot.rotation < -180 || slot.rotation > 180)) {
+      errors.push(`${p}.rotation must be a number between -180 and 180`);
+    }
+    if (slot.zIndex !== undefined && !Number.isInteger(slot.zIndex)) {
+      errors.push(`${p}.zIndex must be an integer`);
+    }
+    if (slot.opacity !== undefined && (!isNum(slot.opacity) || slot.opacity < 0 || slot.opacity > 1)) {
+      errors.push(`${p}.opacity must be a number between 0 and 1`);
+    }
+    for (const f of ['color', 'bg']) {
+      if (slot[f] !== undefined && slot[f] !== null && !HEX_OR_CSS_COLOR.test(String(slot[f]).trim())) {
+        errors.push(`${p}.${f} must be a valid color`);
+      }
+    }
+    if (slot.align !== undefined && !CARD_ALIGNS.includes(slot.align)) {
+      errors.push(`${p}.align must be one of ${CARD_ALIGNS.join(', ')}`);
+    }
+    if (slot.valign !== undefined && !CARD_VALIGNS.includes(slot.valign)) {
+      errors.push(`${p}.valign must be one of ${CARD_VALIGNS.join(', ')}`);
+    }
+    for (const f of ['uppercase', 'bold', 'italic', 'visible']) {
+      if (slot[f] !== undefined && typeof slot[f] !== 'boolean') {
+        errors.push(`${p}.${f} must be a boolean`);
+      }
+    }
+    if (slot.fontFamily !== undefined && slot.fontFamily !== null && typeof slot.fontFamily !== 'string') {
+      errors.push(`${p}.fontFamily must be a string`);
+    }
+    if (slot.badgeType !== undefined && !BADGE_TYPES.includes(slot.badgeType)) {
+      errors.push(`${p}.badgeType must be one of ${BADGE_TYPES.join(', ')}`);
+    }
+    if (slot.type === 'text' && (typeof slot.text !== 'string' || slot.text.trim() === '')) {
+      errors.push(`${p}.text is required for a "text" slot`);
+    } else if (slot.text !== undefined && typeof slot.text !== 'string') {
+      // Le badge de la zone porte désormais son propre libellé sur la carte.
+      errors.push(`${p}.text must be a string`);
+    }
+    // Image libre (upload ou bibliothèque). imageUrl reste facultative : un
+    // emplacement posé avant d'avoir choisi l'image doit pouvoir être
+    // enregistré, il ne rend simplement rien.
+    if (slot.imageUrl !== undefined && slot.imageUrl !== null) {
+      if (typeof slot.imageUrl !== 'string' || slot.imageUrl.trim() === '') {
+        errors.push(`${p}.imageUrl must be a non-empty string or null`);
+      } else if (slot.imageUrl.length > 2048) {
+        errors.push(`${p}.imageUrl is too long`);
+      }
+    }
+    if (slot.type === 'shape' && slot.shape !== undefined && !CARD_SHAPES.includes(slot.shape)) {
+      errors.push(`${p}.shape must be one of ${CARD_SHAPES.join(', ')}`);
+    }
+    if (slot.radius !== undefined && (!isNum(slot.radius) || slot.radius < 0 || slot.radius > 100)) {
+      errors.push(`${p}.radius must be a number between 0 and 100`);
+    }
+    if (slot.fit !== undefined && !['contain', 'cover'].includes(slot.fit)) {
+      errors.push(`${p}.fit must be "contain" or "cover"`);
+    }
+  });
+  return errors;
+}
+
+// Cartes personnalisées par produit : { [itemId]: cardLayout }. Une valeur
+// null retire la personnalisation du produit et le fait revenir au dessin de
+// la zone.
+function validateCardLayouts(map, path) {
+  if (map === undefined || map === null) return [];
+  if (typeof map !== 'object' || Array.isArray(map)) return [`${path} must be an object`];
+  const errors = [];
+  const keys = Object.keys(map);
+  if (keys.length > 200) errors.push(`${path} is limited to 200 entries`);
+  for (const key of keys) {
+    if (!/^\d+$/.test(key)) {
+      errors.push(`${path} keys must be numeric item ids`);
+      continue;
+    }
+    errors.push(...validateCardLayout(map[key], `${path}.${key}`));
   }
   return errors;
 }
@@ -483,6 +638,18 @@ async function replaceLayout(prisma, screenId, input) {
     // updates keep existing zones untouched)
     if (hasZones) {
       const existingZones = await tx.zone.findMany({ where: { layoutId: layout.id } });
+
+      // A zone id in the payload has to be one of *this* layout's zones.
+      // tx.zone.update() below matches on id alone, so a stray id (a stale
+      // builder tab, a copy-pasted payload) would silently overwrite a zone
+      // belonging to another screen's layout — and the wrong TV would change.
+      const existingIds = new Set(existingZones.map((z) => z.id));
+      for (const z of zonesInput) {
+        if (z.id != null && !existingIds.has(parseInt(z.id, 10))) {
+          throw new ZoneValidationError(`Zone ${zoneLabel(z)} does not belong to this layout`);
+        }
+      }
+
       const keepIds = zonesInput.filter((z) => z.id).map((z) => parseInt(z.id, 10));
       for (const z of existingZones) {
         if (!keepIds.includes(z.id)) {
@@ -511,6 +678,7 @@ async function replaceLayout(prisma, screenId, input) {
               col: it.col ?? null,
               index: it.index ?? i,
               order: it.order ?? i,
+              qty: it.qty !== undefined ? Number(it.qty) || null : null,
             })),
           });
         }
@@ -597,6 +765,9 @@ module.exports = {
   validateGridConfig,
   validateBadgeConfig,
   validateBackgroundStyle,
+  validateCardLayout,
+  validateCardLayouts,
+  CARD_SLOT_TYPES,
   validateBackgroundConfig,
   validateElementsConfig,
   zonesOverlap,

@@ -102,6 +102,7 @@ export default function FreeElementsLayer({ elements }) {
                       color: el.color || '#FFFFFF',
                       lineHeight: 1,
                       textShadow: '0 4px 10px rgba(0,0,0,0.45)',
+                      fontFamily: el.fontFamily || undefined,
                     }}
                   >
                     {el.text}
@@ -117,7 +118,12 @@ export default function FreeElementsLayer({ elements }) {
               <div className="flex h-full w-full items-center justify-center overflow-hidden">
                 <span
                   className="font-menu-header uppercase tracking-wide text-center"
-                  style={{ fontSize: cap(el.fontSize) || 24, color: el.color || '#FFFFFF', lineHeight: 1.1 }}
+                  style={{
+                    fontSize: cap(el.fontSize) || 24,
+                    color: el.color || '#FFFFFF',
+                    lineHeight: 1.1,
+                    fontFamily: el.fontFamily || undefined,
+                  }}
                 >
                   {el.text}
                 </span>

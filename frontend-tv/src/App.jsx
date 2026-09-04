@@ -1,5 +1,6 @@
 import { Component } from 'react'
 import ScreenDisplay from './pages/ScreenDisplay.jsx'
+import LibraryFontFaces from './components/layout/LibraryFontFaces.jsx'
 
 // Screen id: explicit prop, URL query (?id=2), then fallback to 1
 function screenIdFromProps() {
@@ -47,6 +48,7 @@ class ErrorBoundary extends Component {
 export default function App() {
   return (
     <ErrorBoundary>
+      <LibraryFontFaces />
       <ScreenDisplay screenId={screenIdFromProps()} />
     </ErrorBoundary>
   )

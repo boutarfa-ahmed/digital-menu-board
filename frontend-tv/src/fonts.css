@@ -48,3 +48,15 @@
   font-display: swap;
   src: url('/fonts/tagesschrift-400.woff2') format('woff2');
 }
+
+/* Optional font choice for free "plain" text elements (picked per-element in
+ * the admin, see FreeElementsLayer.jsx's `fontFamily` handling) — self-hosted
+ * from the user-supplied OFL-licensed variable font (license copy:
+ * public/fonts/roboto-flex-OFL.txt). font-weight spans its full wght axis. */
+@font-face {
+  font-family: 'Roboto Flex';
+  font-style: normal;
+  font-weight: 100 1000;
+  font-display: swap;
+  src: url('/fonts/roboto-flex.woff2') format('woff2-variations');
+}

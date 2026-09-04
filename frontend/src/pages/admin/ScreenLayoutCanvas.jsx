@@ -9,815 +9,64 @@ import { Modal } from '../../components/ui/modal'
 import { useAuth } from '../../context/AuthContext'
 import { ChevronLeftIcon, PlusIcon, CloseIcon, TrashBinIcon, ListIcon, CheckLineIcon, PencilIcon } from '../../icons'
 import api from '../../api/axios'
-
-const GRID = 12
-const REQUIRES_GRID = ['grid', 'list', 'carousel']
-const CONTENT_ZONE_TYPES = ['menu', 'grid', 'list', 'carousel']
-
-// Sub-zone (T9): the product grid/list container's own position+size inside
-// its zone, as % of the space left under the zone's header — independent of
-// the zone's own box. Undefined/null on a zone's backgroundStyle means "fill
-// that whole space", matching the layout every zone had before this control
-// existed, so old zones render unchanged.
-const DEFAULT_CONTENT_BOX = { x: 0, y: 0, w: 100, h: 100 }
-const CONTENT_BOX_MIN = 10
-
-// Free elements (T8) are stored as % of the 1920x1080 TV design canvas — see
-// frontend-tv/src/components/layout/FreeElementsLayer.jsx. Image elements are
-// edited in px in this admin UI, so convert both ways against that canvas.
-const EL_DESIGN_W = 1920
-const EL_DESIGN_H = 1080
-const EL_IMAGE_MAX_PX = 1000
-const pxToPctW = (px) => (px / EL_DESIGN_W) * 100
-const pxToPctH = (px) => (px / EL_DESIGN_H) * 100
-const pctToPxW = (pct) => Math.round((pct / 100) * EL_DESIGN_W)
-const pctToPxH = (pct) => Math.round((pct / 100) * EL_DESIGN_H)
-
-const ZONE_TYPE_LABELS = {
-  menu: 'Menu',
-  grid: 'Grille',
-  list: 'Liste',
-  carousel: 'Carrousel',
-  banner: 'Bannière',
-  hero: 'Héro',
-  highlight: 'Mise en avant',
-}
-
-const ZONE_TYPE_COLORS = {
-  menu: 'info',
-  grid: 'primary',
-  list: 'success',
-  carousel: 'light',
-  banner: 'info',
-  hero: 'primary',
-  highlight: 'success',
-}
-
-const CARD_TEMPLATES = ['default', 'compact', 'large', 'minimal', 'media', 'icon-label', 'text-only', 'image-title-desc-price']
-const CARD_TEMPLATE_LABELS = {
-  default: 'Par défaut',
-  compact: 'Compact',
-  large: 'Grand',
-  minimal: 'Minimal',
-  media: 'Média',
-  'icon-label': 'Icône + libellé',
-  'text-only': 'Texte seul',
-  'image-title-desc-price': 'Image + détails',
-}
-
-// T8b — free element "kind" presets pour les textes (Éléments tab)
-const ELEMENT_KINDS = ['plain', 'banner', 'hero', 'divider', 'price']
-const ELEMENT_KIND_LABELS = {
-  plain: 'Texte simple',
-  banner: 'Bannière catégorie',
-  hero: 'Titre héro',
-  divider: 'Séparateur',
-  price: 'Badge prix',
-}
-
-// Les deux designs de badge prix (frontend-tv/src/theme/designTokens.js).
-// Indépendant du couple sombre/clair : 2 types x 2 fonds = 4 rendus.
-const BADGE_TYPES = ['type1', 'type2']
-const BADGE_TYPE_LABELS = {
-  type1: 'Type 1 — sticker',
-  type2: 'Type 2 — ticket déchiré',
-}
-
-// T7.3 — zone badge/label config (plain JSON on the zone)
-const BADGE_STYLES = ['torn-paper', 'ribbon', 'circle-stamp']
-const BADGE_STYLE_LABELS = {
-  'torn-paper': 'Papier déchiré',
-  ribbon: 'Ruban',
-  'circle-stamp': 'Cachet rond',
-}
-const BADGE_POSITIONS = ['top-left', 'top-center', 'top-right', 'bottom-left', 'bottom-center', 'bottom-right']
-const BADGE_POSITION_LABELS = {
-  'top-left': 'Haut gauche',
-  'top-center': 'Haut centre',
-  'top-right': 'Haut droite',
-  'bottom-left': 'Bas gauche',
-  'bottom-center': 'Bas centre',
-  'bottom-right': 'Bas droite',
-}
-
-// T7.4 — zone style overrides (backgroundStyle JSON on the zone)
-const FONT_SIZES = [6, 8, 10, 12, 14, 16, 18, 20, 24, 28]
-const STYLE_DEFAULTS = {
-  bgDark: '#121212',
-  bgLight: '#F5F3EF',
-  textDark: '#FFFFFF',
-  textLight: '#1A1A1A',
-  accent: '#FF5A1F',
-}
-
-// T7.6 — screen-level background (stored in layout.settings.background)
-const BG_PATTERNS = ['none', 'torn-paper']
-const BG_PATTERN_LABELS = {
-  none: 'Aucun',
-  'torn-paper': 'Papier déchiré (entre zones)',
-}
-const BG_DEFAULTS = {
-  type: 'image',
-  dark: '#121212',
-  light: '#F5F3EF',
-  angle: 0,
-  pattern: 'none',
-  patternColor: '#FFFFFF',
-  seamsEnabled: true,
-  hiddenSeams: [],
-}
-
-// Subtle paper grain overlay (SVG feTurbulence -> monochrome alpha noise)
-const PAPER_GRAIN = `url("data:image/svg+xml,${encodeURIComponent(
-  "<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='matrix' values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0.9 0.9 0.9 0.55 0'/></filter><rect width='140' height='140' filter='url(#n)'/></svg>"
-)}")`
-
-// Traced from a licensed torn-paper reference (Vecteezy #1222320) — same
-// fixed points as frontend-tv/src/components/ui/ZoneSeams.jsx, so the "Fond"
-// dialog preview matches the TV render exactly. Keep both copies in sync;
-// the two apps share no module to import from.
-const TORN_TILE_LEN = 220
-const TORN_THICKNESS = 40
-
-// prettier-ignore
-const TORN_TOP = [[0.0,4.9],[2.4,5.4],[4.9,5.6],[7.3,8.2],[9.8,10.5],[12.2,12.0],[14.7,12.6],[17.1,12.6],[19.6,12.0],[22.0,10.8],[24.4,10.3],[26.9,11.1],[29.3,11.6],[31.8,11.8],[34.2,11.8],[36.7,11.5],[39.1,10.8],[41.6,9.8],[44.0,9.5],[46.4,9.7],[48.9,10.2],[51.3,10.7],[53.8,11.0],[56.2,11.0],[58.7,10.3],[61.1,10.0],[63.6,10.2],[66.0,10.0],[68.4,9.7],[70.9,9.3],[73.3,9.3],[75.8,9.5],[78.2,10.0],[80.7,9.8],[83.1,9.5],[85.6,9.2],[88.0,9.3],[90.4,10.7],[92.9,11.5],[95.3,10.8],[97.8,10.2],[100.2,10.3],[102.7,12.1],[105.1,13.3],[107.6,13.6],[110.0,13.4],[112.4,12.6],[114.9,11.8],[117.3,11.0],[119.8,11.0],[122.2,10.5],[124.7,9.5],[127.1,8.4],[129.6,7.2],[132.0,6.2],[134.4,5.4],[136.9,4.6],[139.3,3.8],[141.8,2.9],[144.2,2.1],[146.7,1.8],[149.1,1.5],[151.6,1.5],[154.0,0.8],[156.4,0.3],[158.9,0.0],[161.3,0.0],[163.8,0.3],[166.2,0.8],[168.7,0.8],[171.1,0.0],[173.6,0.3],[176.0,1.6],[178.4,3.1],[180.9,3.4],[183.3,3.4],[185.8,3.8],[188.2,4.3],[190.7,5.1],[193.1,5.1],[195.6,4.9],[198.0,4.4],[200.4,3.9],[202.9,3.6],[205.3,3.4],[207.8,3.8],[210.2,4.8],[212.7,5.4],[215.1,5.7],[217.6,5.6],[220.0,5.1]]
-
-// prettier-ignore
-const TORN_BOTTOM = [[0.0,3.7],[2.4,3.7],[4.9,3.2],[7.3,5.5],[9.8,6.4],[12.2,7.1],[14.7,9.4],[17.1,10.9],[19.6,11.1],[22.0,10.2],[24.4,9.9],[26.9,12.1],[29.3,11.0],[31.8,11.6],[34.2,12.8],[36.7,13.6],[39.1,13.4],[41.6,12.6],[44.0,12.2],[46.4,12.4],[48.9,12.9],[51.3,13.6],[53.8,11.6],[56.2,10.1],[58.7,12.2],[61.1,11.7],[63.6,9.6],[66.0,7.7],[68.4,6.9],[70.9,7.6],[73.3,8.1],[75.8,7.5],[78.2,7.4],[80.7,7.7],[83.1,8.4],[85.6,10.9],[88.0,11.6],[90.4,11.1],[92.9,9.7],[95.3,8.3],[97.8,8.3],[100.2,8.9],[102.7,9.3],[105.1,9.1],[107.6,10.1],[110.0,10.7],[112.4,7.8],[114.9,6.0],[117.3,5.5],[119.8,6.9],[122.2,6.5],[124.7,7.4],[127.1,8.1],[129.6,8.7],[132.0,8.9],[134.4,8.7],[136.9,8.0],[139.3,7.6],[141.8,8.2],[144.2,8.5],[146.7,8.3],[149.1,7.3],[151.6,5.6],[154.0,4.1],[156.4,3.9],[158.9,0.5],[161.3,2.1],[163.8,1.1],[166.2,1.4],[168.7,2.1],[171.1,2.0],[173.6,0.5],[176.0,0.0],[178.4,0.6],[180.9,2.0],[183.3,3.1],[185.8,4.2],[188.2,4.2],[190.7,3.9],[193.1,3.9],[195.6,4.1],[198.0,4.6],[200.4,5.1],[202.9,5.3],[205.3,4.9],[207.8,4.9],[210.2,4.3],[212.7,3.4],[215.1,2.9],[217.6,2.8],[220.0,3.6]]
-
-function tornStripDataUri(color) {
-  const topPts = TORN_TOP.map(([x, d]) => `${x} ${d}`).join(' L')
-  const botPts = TORN_BOTTOM
-    .map(([x, d]) => `${x} ${(TORN_THICKNESS - d).toFixed(1)}`)
-    .reverse()
-    .join(' L')
-  const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='${TORN_TILE_LEN}' height='${TORN_THICKNESS}'><filter id='ds' x='-20%' y='-60%' width='140%' height='220%'><feDropShadow dx='0' dy='2' stdDeviation='1.6' flood-color='#000000' flood-opacity='0.3'/></filter><path filter='url(#ds)' d='M${topPts} L${botPts} Z' fill='${color}'/></svg>`
-  return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`
-}
-
-const gpt = (g) => `${(g * 100) / 12}%`
-
-function tornStripVDataUri(color) {
-  const leftPts = TORN_TOP.map(([y, d]) => `${d} ${y}`).join(' L')
-  const rightPts = TORN_BOTTOM
-    .map(([y, d]) => `${(TORN_THICKNESS - d).toFixed(1)} ${y}`)
-    .reverse()
-    .join(' L')
-  const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='${TORN_THICKNESS}' height='${TORN_TILE_LEN}'><filter id='ds' x='-60%' y='-20%' width='220%' height='140%'><feDropShadow dx='2' dy='0' stdDeviation='1.6' flood-color='#000000' flood-opacity='0.3'/></filter><path filter='url(#ds)' d='M${leftPts} L${rightPts} Z' fill='${color}'/></svg>`
-  return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`
-}
-
-// Torn-paper dividers between adjacent zones (mirrors frontend-tv ZoneSeams).
-// Keys must match the TV: `${type}:${pos}:${a}:${span}`. `onToggle` (when
-// provided) makes lines clickable in the Fond preview to hide them per line;
-// otherwise markers are display-only (pointer-events none).
-function computeSeamsAdmin(zones) {
-  const v = []
-  const h = []
-  const push = (list, type, pos, a, span) => {
-    const key = `${type}:${pos}:${a}:${span}`
-    if (!list.some((x) => x.key === key)) list.push({ pos, a, span, key })
-  }
-  for (let i = 0; i < zones.length; i++) {
-    for (let j = 0; j < i; j++) {
-      const a = zones[i]
-      const b = zones[j]
-      const yTop = Math.max(a.y, b.y)
-      const ySpan = Math.min(a.y + a.h, b.y + b.h) - yTop
-      const xLeft = Math.max(a.x, b.x)
-      const xSpan = Math.min(a.x + a.w, b.x + b.w) - xLeft
-      if (ySpan > 0) {
-        if (a.x + a.w === b.x) push(v, 'v', b.x, yTop, ySpan)
-        if (b.x + b.w === a.x) push(v, 'v', a.x, yTop, ySpan)
-      }
-      if (xSpan > 0) {
-        if (a.y + a.h === b.y) push(h, 'h', b.y, xLeft, xSpan)
-        if (b.y + b.h === a.y) push(h, 'h', a.y, xLeft, xSpan)
-      }
-    }
-  }
-  return { v, h }
-}
-
-const seamLabel = (s) => {
-  if (s.key.startsWith('v')) {
-    return `Ligne verticale · x ${s.pos} (de ${s.a} à ${s.a + s.span})`
-  }
-  return `Ligne horizontale · y ${s.pos} (de ${s.a} à ${s.a + s.span})`
-}
-
-function ZoneSeamMarkers({ zones, color = '#FFFFFF', seamsEnabled = true, hiddenSeams = [], onToggle = null }) {
-  const hidden = new Set(hiddenSeams || [])
-  const interact = typeof onToggle === 'function'
-  const { v, h } = computeSeamsAdmin(zones || [])
-  if (!seamsEnabled) return null
-  const vv = v.filter((s) => !hidden.has(s.key))
-  const hh = h.filter((s) => !hidden.has(s.key))
-  if (vv.length === 0 && hh.length === 0) return null
-  return (
-    <>
-      {vv.map((s) => (
-        <div
-          key={`szv${s.key}`}
-          className={`absolute z-30 ${interact ? 'pointer-events-auto cursor-pointer hover:ring-2 hover:ring-white/70' : 'pointer-events-none'}`}
-          title={interact ? 'Masquer la ligne' : undefined}
-          onClick={interact ? () => onToggle(s.key) : undefined}
-          style={{
-            left: gpt(s.pos),
-            top: gpt(s.a),
-            width: 8,
-            height: gpt(s.span),
-            transform: 'translateX(-50%)',
-            backgroundImage: tornStripVDataUri(color),
-            backgroundRepeat: 'repeat-y',
-            backgroundSize: '8px 44px',
-            opacity: 0.9,
-          }}
-        />
-      ))}
-      {hh.map((s) => (
-        <div
-          key={`szh${s.key}`}
-          className={`absolute z-30 ${interact ? 'pointer-events-auto cursor-pointer hover:ring-2 hover:ring-white/70' : 'pointer-events-none'}`}
-          title={interact ? 'Masquer la ligne' : undefined}
-          onClick={interact ? () => onToggle(s.key) : undefined}
-          style={{
-            left: gpt(s.a),
-            top: gpt(s.pos),
-            width: gpt(s.span),
-            height: 8,
-            transform: 'translateY(-50%)',
-            backgroundImage: tornStripDataUri(color),
-            backgroundRepeat: 'repeat-x',
-            backgroundSize: '44px 8px',
-            opacity: 0.9,
-          }}
-        />
-      ))}
-    </>
-  )
-}
-
-function backgroundCss(bg) {
-  if (!bg) return null
-  if (bg.type === 'image' && bg.imageUrl) {
-    return {
-      backgroundImage: `url("${bg.imageUrl}")`,
-      backgroundSize: 'cover',
-      backgroundPosition: 'center',
-      backgroundRepeat: 'no-repeat',
-    }
-  }
-  return null
-}
-
-// Screen background extras: optional torn-paper grain texture. The torn-paper
-// divider between zones is drawn separately (ZoneSeamMarkers / TV ZoneSeams).
-// Screen background extras: no grain overlay anymore — 'torn-paper' means
-// "show the torn-edge divider between adjacent zones", rendered separately
-// by ZoneSeamMarkers below, not a full-screen texture.
-function BackgroundOverlays() {
-  return null
-}
-
-// Compact live badge preview rendered inside the canvas zone boxes
-const TORN_CLIP =
-  'polygon(0% 0%, 2.4% 7%, 4.6% 1.5%, 8% 9%, 10.5% 2%, 14% 8%, 16.8% 0.5%, 20% 7%, 23% 2.5%, 26.5% 9.5%, 29% 1.5%, 32.5% 7.5%, 35% 0%, 100% 0%, 100% 100%, 0% 100%)'
-const BADGE_POS_PX = {
-  'top-left': { top: 2, left: 2 },
-  'top-center': { top: 2, left: '50%', translateX: true },
-  'top-right': { top: 2, right: 2 },
-  'bottom-left': { bottom: 2, left: 2 },
-  'bottom-center': { bottom: 2, left: '50%', translateX: true },
-  'bottom-right': { bottom: 2, right: 2 },
-}
-
-// Sélecteur de design de badge prix. Rend une vraie miniature de chaque type
-// (mêmes découpes/couleurs que PriceBadge côté TV) pour que le choix se fasse
-// à l'œil plutôt que sur un nom. `dark` suit le fond déjà choisi, si bien que
-// l'aperçu montre exactement la combinaison type x fond qui partira à l'écran.
-// Copie du clip-path de PriceBadge (frontend-tv) : les deux apps ne partagent
-// pas de module, donc l'aperçu duplique la forme pour rester fidele au rendu.
-const BADGE_TYPE2_CLIP =
-  'polygon(0.0% 1.6%, 4.6% 8.7%, 8.0% 0.7%, 13.8% 8.9%, 16.7% 1.8%, 21.9% 8.2%, 26.0% 1.0%, 28.7% 7.5%, 31.7% 1.3%, 37.2% 6.5%, 41.1% 1.5%, 47.2% 8.0%, 53.4% 2.0%, 59.0% 6.3%, 62.9% 1.6%, 67.3% 8.0%, 72.7% 1.9%, 76.6% 7.5%, 80.7% 0.8%, 85.9% 6.0%, 88.9% 1.7%, 95.4% 5.7%, 100% 2.0%, 100.0% 98.8%, 95.3% 92.9%, 90.6% 97.9%, 87.2% 91.6%, 81.3% 98.1%, 78.6% 92.5%, 72.4% 99.1%, 68.7% 93.5%, 64.9% 97.5%, 59.5% 92.3%, 55.2% 98.1%, 51.0% 91.5%, 46.0% 98.3%, 42.2% 90.6%, 37.3% 98.5%, 33.2% 92.5%, 29.1% 97.7%, 23.3% 91.8%, 17.6% 98.6%, 14.3% 91.6%, 8.7% 98.1%, 5.8% 91.5%, 1.5% 98.3%, 0% 98.0%)'
-
-const BADGE_TYPE1_CLIP =
-  'polygon(0% 0%, 2.4% 7%, 4.6% 1.5%, 8% 9%, 10.5% 2%, 14% 8%, 16.8% 0.5%, 20% 7%, 23% 2.5%,' +
-  '26.5% 9.5%, 29% 1.5%, 32.5% 7.5%, 35% 0%, 100% 0%, 100% 100%, 0% 100%)'
-
-function BadgeTypeThumb({ type, dark }) {
-  const isType2 = type === 'type2'
-  const bg = dark ? '#0D0D0D' : '#FFFFFF'
-  const ink = dark ? '#FFFFFF' : '#1A1A1A'
-  // Type 1 tinte les centimes en accent, type 2 les garde dans la même encre.
-  const cents = isType2 ? ink : '#FF6B00'
-  return (
-    <span
-      className="inline-block"
-      style={{ filter: isType2 ? 'drop-shadow(0 3px 5px rgba(0,0,0,0.35))' : undefined }}
-    >
-      <span
-        className="inline-block font-bold leading-none"
-        style={{
-          background: bg,
-          color: ink,
-          padding: isType2 ? '7px 10px' : '4px 8px',
-          borderRadius: isType2 ? 0 : '6px 6px 2px 2px',
-          clipPath: isType2 ? BADGE_TYPE2_CLIP : BADGE_TYPE1_CLIP,
-          border: !isType2 && !dark ? '2px solid #0D0D0D' : undefined,
-        }}
-      >
-        <span style={{ fontSize: 17 }}>12</span>
-        <span style={{ fontSize: 10, color: cents, verticalAlign: 'super' }}>,90</span>
-        <span style={{ fontSize: 11 }}>CHF</span>
-      </span>
-    </span>
-  )
-}
-
-function BadgeTypePicker({ value, dark, onChange }) {
-  const active = BADGE_TYPES.includes(value) ? value : 'type1'
-  return (
-    <div>
-      <Label>Type de badge</Label>
-      <div className="grid grid-cols-2 gap-1.5">
-        {BADGE_TYPES.map((t) => (
-          <button
-            key={t}
-            type="button"
-            onClick={() => onChange(t)}
-            title={BADGE_TYPE_LABELS[t]}
-            className={`flex flex-col items-center gap-2 rounded-lg border px-2 py-2.5 transition-colors ${
-              active === t
-                ? 'border-brand-500 bg-brand-50 dark:bg-brand-500/15'
-                : 'border-gray-200 hover:border-brand-300 dark:border-gray-700'
-            }`}
-          >
-            <span
-              className="flex h-11 w-full items-center justify-center rounded"
-              style={{ background: dark ? '#F1F1F1' : '#2A2A2A' }}
-            >
-              <BadgeTypeThumb type={t} dark={dark} />
-            </span>
-            <span
-              className={`text-[11px] font-medium ${
-                active === t
-                  ? 'text-brand-600 dark:text-brand-400'
-                  : 'text-gray-500 dark:text-gray-400'
-              }`}
-            >
-              {BADGE_TYPE_LABELS[t]}
-            </span>
-          </button>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-function ZoneBadgePreview({ config, accent }) {
-  if (!config) return null
-  const style = BADGE_STYLES.includes(config.style) ? config.style : 'torn-paper'
-  const pos = BADGE_POS_PX[config.position] || BADGE_POS_PX['top-right']
-  const transform = (pos.translateX ? 'translateX(-50%) ' : '') + (style === 'circle-stamp' ? 'rotate(-6deg)' : style === 'torn-paper' ? 'rotate(-1.5deg)' : '')
-  const accentColor = accent || STYLE_DEFAULTS.accent
-  const label =
-    config.text ||
-    (config.price != null ? `${Number(config.price).toFixed(2).replace('.', ',')}€` : '')
-  const common = {
-    position: 'absolute',
-    zIndex: 20,
-    ...pos,
-    transform: transform || undefined,
-  }
-  if (style === 'circle-stamp') {
-    return (
-      <span
-        style={{
-          ...common,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          width: 26,
-          height: 26,
-          borderRadius: 9999,
-          border: `2px dashed ${accentColor}`,
-          background: '#FFFFFF',
-          color: accentColor,
-          fontSize: 6,
-          fontWeight: 700,
-          textAlign: 'center',
-          textTransform: 'uppercase',
-          lineHeight: 1.1,
-        }}
-      >
-        {label}
-      </span>
-    )
-  }
-  if (style === 'ribbon') {
-    return (
-      <span
-        style={{
-          ...common,
-          background: accentColor,
-          color: '#FFFFFF',
-          fontSize: 6,
-          fontWeight: 700,
-          letterSpacing: '0.06em',
-          textTransform: 'uppercase',
-          padding: '2px 6px',
-          transform: `skewX(-10deg)`,
-        }}
-      >
-        <span style={{ display: 'inline-block', transform: 'skewX(10deg)' }}>{label}</span>
-      </span>
-    )
-  }
-  return (
-    <span
-      style={{
-        ...common,
-        background: '#FFFFFF',
-        color: '#0D0D0D',
-        fontSize: 6,
-        fontWeight: 700,
-        textTransform: 'uppercase',
-        padding: '2px 5px',
-        boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
-        clipPath: TORN_CLIP,
-      }}
-    >
-      {label}
-    </span>
-  )
-}
-
-// T7.5 — mini card-template mockup shown in canvas slots (wireframe + styled)
-function CardTemplatePreview({ template, name, accent, text }) {
-  const t = CARD_TEMPLATES.includes(template) ? template : 'default'
-  const a = accent || STYLE_DEFAULTS.accent
-  // open templates (transparent bg) take the zone text color so they flip with
-  // the fond (→.text-menu-text). Templates with an inner light chip keep the
-  // accent name so it stays readable on the white chip.
-  const open = ['compact', 'minimal', 'icon-label', 'text-only'].includes(t)
-  const nameColor = open && text ? text : a
-  const imgBlock = <div className="min-h-0 flex-1 bg-gray-400/60" />
-
-  if (t === 'compact') {
-    return (
-      <div className="flex h-full w-full flex-col items-center justify-center gap-0.5 overflow-hidden">
-        <div className="size-4 flex-none rounded bg-white/85 shadow-sm" />
-        <span className="max-w-full truncate text-[8px] font-semibold uppercase leading-tight" style={{ color: nameColor }}>
-          {name}
-        </span>
-      </div>
-    )
-  }
-  if (t === 'large') {
-    return (
-      <div className="flex h-full w-full flex-col overflow-hidden rounded bg-white/75 shadow-sm">
-        {imgBlock}
-        <div className="p-0.5">
-          <span className="block truncate text-[8px] font-semibold leading-tight" style={{ color: a }}>
-            {name}
-          </span>
-        </div>
-      </div>
-    )
-  }
-  if (t === 'minimal') {
-    return (
-      <div className="flex h-full w-full flex-col justify-center gap-0.5 overflow-hidden">
-        <span className="truncate text-[8px] font-semibold uppercase leading-tight" style={{ color: nameColor }}>
-          {name}
-        </span>
-        <div className="h-0.5 w-3/4 rounded bg-white/40" />
-      </div>
-    )
-  }
-  if (t === 'media') {
-    return (
-      <div className="flex h-full w-full items-center gap-1 overflow-hidden rounded bg-white/75 shadow-sm">
-        <div className="h-full w-1/4 flex-none bg-gray-400/60" />
-        <span className="min-w-0 flex-1 truncate text-[8px] font-semibold leading-tight" style={{ color: a }}>
-          {name}
-        </span>
-      </div>
-    )
-  }
-  if (t === 'icon-label') {
-    return (
-      <div className="flex h-full w-full flex-col items-center justify-center gap-0.5 overflow-hidden">
-        <div className="size-4 flex-none rounded-full bg-white/85 shadow-sm" />
-        <span className="max-w-full truncate text-center text-[8px] font-semibold uppercase leading-tight" style={{ color: nameColor }}>
-          {name}
-        </span>
-      </div>
-    )
-  }
-  if (t === 'text-only') {
-    return (
-      <div className="flex h-full w-full flex-col justify-center gap-0.5 overflow-hidden px-0.5">
-        <span className="truncate text-[8px] font-bold uppercase leading-tight" style={{ color: nameColor }}>
-          {name}
-        </span>
-        <div className="h-0.5 w-full rounded bg-white/30" />
-        <div className="h-0.5 w-2/3 rounded bg-white/20" />
-      </div>
-    )
-  }
-  if (t === 'image-title-desc-price') {
-    return (
-      <div className="flex h-full w-full items-center gap-1 overflow-hidden rounded bg-white/75 px-0.5 shadow-sm">
-        <div className="size-3.5 flex-none rounded bg-gray-400/60" />
-        <div className="min-w-0 flex-1">
-          <span className="block truncate text-[8px] font-semibold leading-tight" style={{ color: a }}>
-            {name}
-          </span>
-          <div className="mt-0.5 h-0.5 w-full rounded bg-white/40" />
-          <div className="mt-0.5 h-0.5 w-2/3 rounded bg-white/30" />
-        </div>
-      </div>
-    )
-  }
-  // default: small thumb + title + desc line
-  return (
-    <div className="flex h-full w-full items-center gap-1 overflow-hidden rounded bg-white/75 shadow-sm">
-      <div className="size-3.5 flex-none rounded bg-gray-400/60" />
-      <div className="min-w-0">
-        <span className="block truncate text-[8px] font-semibold leading-tight" style={{ color: a }}>
-          {name}
-        </span>
-        <div className="mt-0.5 h-0.5 w-2/3 rounded bg-white/40" />
-      </div>
-    </div>
-  )
-}
-
-// T7.5 — final "styled" content of a zone (used in preview mode)
-function StyledZoneContent({ zone, accent, text }) {
-  const items = zone.items || []
-  const t = zone.cardTemplate || 'default'
-
-  if (zone.zoneType === 'banner' || zone.zoneType === 'hero') {
-    return (
-      <div className="flex h-full w-full flex-col items-center justify-center gap-1 overflow-hidden rounded-md" style={{ background: 'linear-gradient(135deg, rgba(255,255,255,0.08), rgba(0,0,0,0.25))' }}>
-        {zone.name ? (
-          <span className="px-1 text-center font-bold uppercase leading-tight" style={{ color: accent, fontSize: '1.2em' }}>
-            {zone.name}
-          </span>
-        ) : null}
-        <div className="h-0.5 w-2/3 rounded bg-white/30" />
-      </div>
-    )
-  }
-
-  if (zone.zoneType === 'grid') {
-    const rows = zone.gridConfig?.rows || 1
-    const cols = zone.gridConfig?.cols || 1
-    return (
-      <div className="grid min-h-0 flex-1 gap-1" style={{ gridTemplateColumns: `repeat(${cols}, 1fr)`, gridTemplateRows: `repeat(${rows}, 1fr)` }}>
-        {Array.from({ length: rows * cols }, (_, i) => {
-          const r = Math.floor(i / cols)
-          const c = i % cols
-          const item = items.find((it) => it.row === r && it.col === c)
-          return item ? (
-            <div key={i} className="min-h-0 min-w-0 overflow-hidden rounded">
-              <CardTemplatePreview template={t} name={item.item?.name} accent={accent} text={text} />
-            </div>
-          ) : (
-            <div key={i} className="min-h-0 min-w-0 rounded border border-current opacity-25" />
-          )
-        })}
-      </div>
-    )
-  }
-
-  // list / carousel / menu
-  return (
-    <div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-hidden">
-      {items.length === 0 ? (
-        <div className="m-auto text-[9px] uppercase tracking-wide opacity-50">Vide</div>
-      ) : (
-        items.slice(0, 12).map((it) => (
-          <div key={it.itemId} className="h-5 flex-none">
-            <CardTemplatePreview template={t} name={it.item?.name} accent={accent} text={text} />
-          </div>
-        ))
-      )}
-    </div>
-  )
-}
-
-const TYPE_SWATCH = {
-  menu: 'bg-blue-light-500',
-  grid: 'bg-brand-500',
-  list: 'bg-success-500',
-  carousel: 'bg-gray-400',
-  banner: 'bg-blue-light-500',
-  hero: 'bg-brand-500',
-  highlight: 'bg-success-500',
-}
-
-const PRESETS = [
-  {
-    key: 'split',
-    label: 'Split dual-panel',
-    description: 'Deux panneaux côte à côte',
-    zones: [
-      { name: 'Panneau gauche', zoneType: 'list', gridConfig: { rows: 6, cols: 2 }, x: 0, y: 0, w: 6, h: 12 },
-      { name: 'Panneau droit', zoneType: 'list', gridConfig: { rows: 6, cols: 2 }, x: 6, y: 0, w: 6, h: 12 },
-    ],
-  },
-  {
-    key: 'stack',
-    label: 'Multi-zone stack',
-    description: 'Héro en haut, grille en dessous',
-    zones: [
-      { name: 'Héro', zoneType: 'hero', x: 0, y: 0, w: 12, h: 4 },
-      { name: 'Grille produits', zoneType: 'grid', gridConfig: { rows: 2, cols: 4 }, x: 0, y: 4, w: 12, h: 8 },
-    ],
-  },
-  {
-    key: 'columns',
-    label: '3-column independent',
-    description: 'Trois colonnes indépendantes',
-    zones: [
-      { name: 'Colonne 1', zoneType: 'list', gridConfig: { rows: 6, cols: 2 }, x: 0, y: 0, w: 4, h: 12 },
-      { name: 'Colonne 2', zoneType: 'list', gridConfig: { rows: 6, cols: 2 }, x: 4, y: 0, w: 4, h: 12 },
-      { name: 'Colonne 3', zoneType: 'list', gridConfig: { rows: 6, cols: 2 }, x: 8, y: 0, w: 4, h: 12 },
-    ],
-  },
-  {
-    key: 'grid',
-    label: 'Grille uniforme',
-    description: 'Une grille pleine écran',
-    variants: [
-      { label: '2×2', rows: 2, cols: 2 },
-      { label: '2×3', rows: 2, cols: 3 },
-      { label: '3×4', rows: 3, cols: 4 },
-    ],
-  },
-  {
-    key: 'listrow',
-    label: 'List-row',
-    description: 'Bande de liste horizontale',
-    zones: [
-      { name: 'Liste', zoneType: 'list', gridConfig: { rows: 2, cols: 3 }, x: 0, y: 0, w: 12, h: 4 },
-    ],
-  },
-]
-
-function PresetThumb({ zones }) {
-  return (
-    <div
-      className="relative h-14 w-24 flex-none overflow-hidden rounded border border-gray-200 bg-gray-100 dark:border-gray-700 dark:bg-gray-900"
-      style={{ aspectRatio: '16 / 9' }}
-    >
-      {zones.map((z, i) => (
-        <div
-          key={i}
-          className={`absolute ${TYPE_SWATCH[z.zoneType] || 'bg-gray-400'}`}
-          style={{
-            left: `${(z.x / 12) * 100}%`,
-            top: `${(z.y / 12) * 100}%`,
-            width: `${(z.w / 12) * 100}%`,
-            height: `${(z.h / 12) * 100}%`,
-          }}
-        />
-      ))}
-    </div>
-  )
-}
-
-const RESIZE_HANDLES = [
-  { dir: 'nw', cls: '-left-0.5 -top-0.5 cursor-nwse-resize' },
-  { dir: 'ne', cls: '-right-0.5 -top-0.5 cursor-nesw-resize' },
-  { dir: 'sw', cls: '-bottom-0.5 -left-0.5 cursor-nesw-resize' },
-  { dir: 'se', cls: '-bottom-0.5 -right-0.5 cursor-nwse-resize' },
-]
-
-// Free elements: the selection frame floats outline-offset-[7.5px] away from
-// the actual element on EACH side (see the "Éléments" overlay below), so the
-// frame's own width/height end up exactly element size + 15px total (e.g. a
-// 500x400 element gets a ~515x415 frame) instead of touching the image/text
-// bounds. Handles are nudged out to sit on that same ring (7.5px offset +
-// ~1px half the outline's own stroke + half the handle's own 10px size).
-const EL_RESIZE_HANDLES = [
-  { dir: 'nw', cls: '-left-[13.5px] -top-[13.5px] cursor-nwse-resize' },
-  { dir: 'ne', cls: '-right-[13.5px] -top-[13.5px] cursor-nesw-resize' },
-  { dir: 'sw', cls: '-bottom-[13.5px] -left-[13.5px] cursor-nesw-resize' },
-  { dir: 'se', cls: '-bottom-[13.5px] -right-[13.5px] cursor-nwse-resize' },
-]
-
-const overlaps = (a, b) =>
-  a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h
-
-const clamp = (n, min, max) => Math.max(min, Math.min(max, n))
-
-// Free-floating image elements: a PNG/WEBP export often carries transparent
-// padding around the actual drawing (e.g. a torn-paper sticker on a square
-// canvas). Since the element's box/frame is exactly the uploaded image's own
-// pixel dimensions, that padding used to end up INSIDE the box too — the
-// visible artwork never really reached an edge or corner. Trim it once here,
-// at upload time, so the stored image (and thus the frame) hugs only the
-// non-transparent pixels.
-const TRIM_ALPHA_THRESHOLD = 10
-async function trimTransparentPadding(file) {
-  if (!/png|webp/.test(file.type || '')) return file
-  try {
-    const bitmap = await createImageBitmap(file)
-    const canvas = document.createElement('canvas')
-    canvas.width = bitmap.width
-    canvas.height = bitmap.height
-    const ctx = canvas.getContext('2d')
-    ctx.drawImage(bitmap, 0, 0)
-    const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height)
-
-    let minX = canvas.width
-    let minY = canvas.height
-    let maxX = -1
-    let maxY = -1
-    for (let y = 0; y < canvas.height; y++) {
-      for (let x = 0; x < canvas.width; x++) {
-        if (data[(y * canvas.width + x) * 4 + 3] > TRIM_ALPHA_THRESHOLD) {
-          if (x < minX) minX = x
-          if (x > maxX) maxX = x
-          if (y < minY) minY = y
-          if (y > maxY) maxY = y
-        }
-      }
-    }
-
-    const nothingVisible = maxX < 0
-    const nothingToTrim = minX === 0 && minY === 0 && maxX === canvas.width - 1 && maxY === canvas.height - 1
-    if (nothingVisible || nothingToTrim) return file
-
-    const w = maxX - minX + 1
-    const h = maxY - minY + 1
-    const trimmed = document.createElement('canvas')
-    trimmed.width = w
-    trimmed.height = h
-    trimmed.getContext('2d').drawImage(canvas, minX, minY, w, h, 0, 0, w, h)
-    const blob = await new Promise((resolve) => trimmed.toBlob(resolve, 'image/png'))
-    if (!blob) return file
-    return new File([blob], file.name.replace(/\.\w+$/, '.png'), { type: 'image/png' })
-  } catch {
-    return file
-  }
-}
-
-function findFreePosition(zones, w, h) {
-  for (let y = 0; y <= GRID - h; y += 1) {
-    for (let x = 0; x <= GRID - w; x += 1) {
-      const rect = { x, y, w, h }
-      if (!zones.some((z) => overlaps(rect, z))) return { x, y }
-    }
-  }
-  return null
-}
-
-function validateLayoutForPublish(layout) {
-  if (!layout) return []
-  const zones = layout.zones || []
-  if (zones.length === 0) return ['Ajoutez au moins une zone avant de publier.']
-  const errors = []
-  for (const z of zones) {
-    const label = z.name || `Zone #${z.id}`
-    const items = z.items || []
-    if (CONTENT_ZONE_TYPES.includes(z.zoneType) && items.length === 0) {
-      errors.push(`La zone « ${label} » est vide : ajoutez au moins un produit.`)
-    }
-    if (REQUIRES_GRID.includes(z.zoneType)) {
-      const rows = z.gridConfig?.rows
-      const cols = z.gridConfig?.cols
-      if (!rows || !cols || rows < 1 || cols < 1) {
-        errors.push(`La zone « ${label} » a une grille incohérente (lignes/colonnes invalides).`)
-        continue
-      }
-      const capacity = rows * cols
-      if (z.zoneType === 'grid') {
-        const seen = new Set()
-        for (const it of items) {
-          const r = it.row
-          const c = it.col
-          if (typeof r !== 'number' || typeof c !== 'number' || r < 0 || r >= rows || c < 0 || c >= cols) {
-            errors.push(`La zone « ${label} » contient un produit hors grille (position ${r},${c}) pour ${rows}×${cols}.`)
-          } else {
-            const key = `${r}:${c}`
-            if (seen.has(key)) errors.push(`La zone « ${label} » place deux produits sur la même cellule (${r},${c}).`)
-            seen.add(key)
-          }
-        }
-      }
-      if (items.length > capacity) {
-        errors.push(`La zone « ${label} » dépasse sa capacité (${items.length} produits pour ${rows}×${cols}).`)
-      }
-    }
-  }
-  return errors
-}
+import ZoneSeamMarkers from './canvas/ZoneSeamMarkers'
+import BadgeTypePicker from './canvas/BadgeTypePicker'
+import ZoneBadgePreview from './canvas/ZoneBadgePreview'
+import CardTemplatePreview from './canvas/CardTemplatePreview'
+import StyledZoneContent from './canvas/StyledZoneContent'
+import PresetThumb from './canvas/PresetThumb'
+import CardDesigner from './canvas/CardDesigner'
+import {
+  GRID,
+  REQUIRES_GRID,
+  CONTENT_ZONE_TYPES,
+  DEFAULT_CONTENT_BOX,
+  CONTENT_BOX_MIN,
+  EL_IMAGE_MAX_PX,
+  pxToPctW,
+  pxToPctH,
+  pctToPxW,
+  pctToPxH,
+  ZONE_TYPE_LABELS,
+  ZONE_TYPE_COLORS,
+  CARD_TEMPLATES,
+  CARD_TEMPLATE_LABELS,
+  ELEMENT_KINDS,
+  ELEMENT_KIND_LABELS,
+  FONT_OPTIONS,
+  BADGE_STYLES,
+  BADGE_STYLE_LABELS,
+  BADGE_POSITIONS,
+  BADGE_POSITION_LABELS,
+  FONT_SIZES,
+  STYLE_DEFAULTS,
+  BG_PATTERNS,
+  BG_PATTERN_LABELS,
+  BG_DEFAULTS,
+  PRESETS,
+  RESIZE_HANDLES,
+  EL_RESIZE_HANDLES,
+} from './canvas/constants'
+import { TORN_CLIP } from './canvas/tornPaper'
+import {
+  overlaps,
+  clamp,
+  gpt,
+  computeSeamsAdmin,
+  seamLabel,
+  backgroundCss,
+  trimTransparentPadding,
+  findFreePosition,
+  validateLayoutForPublish,
+  defaultShowPrice,
+  zoneShowsPrice,
+} from './canvas/canvasUtils'
+import {
+  cardLayoutFor,
+  hasOwnCardLayout,
+  pruneCardLayouts,
+  sanitizeBackgroundStyle,
+} from './canvas/cardLayout'
 
 function ScreenLayoutCanvas() {
   const { id } = useParams()
@@ -862,6 +111,15 @@ function ScreenLayoutCanvas() {
 
   const [items, setItems] = useState([])
   const [categories, setCategories] = useState([])
+  const [libraryFonts, setLibraryFonts] = useState([])
+  // T10 — éditeur de carte personnalisée : { zoneId, itemId | null }
+  const [cardDesigner, setCardDesigner] = useState(null)
+  const [cardSaving, setCardSaving] = useState(false)
+  const [cardError, setCardError] = useState('')
+  const [libraryCategories, setLibraryCategories] = useState([])
+  const [libraryCatId, setLibraryCatId] = useState(null)
+  const [bgLibraryOpen, setBgLibraryOpen] = useState(false)
+  const [bgLibraryCatId, setBgLibraryCatId] = useState(null)
   const [panelOpen, setPanelOpen] = useState(true)
   const [panelTab, setPanelTab] = useState('produits')
   const [catFilter, setCatFilter] = useState('all')
@@ -925,13 +183,24 @@ function ScreenLayoutCanvas() {
       api.get(`/screens/${id}/layout?preview=1`).then((r) => r.data),
       api.get('/categories').then((r) => r.data),
       api.get('/menu').then((r) => r.data),
+      api
+        .get('/library/categories')
+        .then((r) => r.data)
+        .catch(() => []),
     ])
-      .then(([scr, lay, cats, menu]) => {
+      .then(([scr, lay, cats, menu, libCats]) => {
         setScreen(scr)
         setLayout(lay)
         setElements(lay?.settings?.elements || [])
         setCategories(Array.isArray(cats) ? cats : [])
         setItems(Array.isArray(menu) ? menu : [])
+        const libArr = Array.isArray(libCats) ? libCats : []
+        const fonts = libArr
+          .filter((c) => c.type === 'font')
+          .flatMap((c) => c.assets || [])
+          .filter((a) => a.name)
+        setLibraryFonts(fonts)
+        setLibraryCategories(libArr.filter((c) => c.type !== 'font'))
       })
       .catch((err) => setError(err.response?.data?.error || 'Impossible de charger le layout'))
       .finally(() => setLoading(false))
@@ -1229,8 +498,11 @@ function ScreenLayoutCanvas() {
           rect.y = orig.y + dy
           rect.h = orig.h - dy
         }
-        rect.w = Math.max(CONTENT_BOX_MIN, rect.w)
-        rect.h = Math.max(CONTENT_BOX_MIN, rect.h)
+        // Borne haute aussi, pas seulement basse : sans elle, tirer une
+        // poignée au-delà du bord donnait w/h > 100, une valeur que le backend
+        // refuse — et la zone devenait impossible à modifier ensuite.
+        rect.w = clamp(rect.w, CONTENT_BOX_MIN, 100)
+        rect.h = clamp(rect.h, CONTENT_BOX_MIN, 100)
         rect.x = clamp(rect.x, 0, 100 - rect.w)
         rect.y = clamp(rect.y, 0, 100 - rect.h)
       }
@@ -1356,6 +628,7 @@ function ScreenLayoutCanvas() {
           col: it.col,
           index: it.index,
           order: it.order,
+          qty: it.qty,
         })),
       }
       const zones = [
@@ -1378,6 +651,7 @@ function ScreenLayoutCanvas() {
             col: it.col,
             index: it.index,
             order: it.order,
+            qty: it.qty,
           })),
         })),
         restored,
@@ -1522,6 +796,11 @@ function ScreenLayoutCanvas() {
       }))
     }
     await putZoneItems(zone, items)
+    // Le produit part : sa carte personnalisée n'a plus de sujet, on la retire
+    // du JSON au lieu de la laisser traîner pour toujours. Après
+    // putZoneItems, qui réécrit la zone avec la réponse du serveur.
+    const pruned = pruneCardLayouts(zone.backgroundStyle, items.map((it) => it.itemId))
+    if (pruned !== zone.backgroundStyle) patchZone(zone.id, { backgroundStyle: pruned })
   }
 
   const createLayout = async () => {
@@ -1625,6 +904,7 @@ function ScreenLayoutCanvas() {
             col: it.col,
             index: it.index,
             order: it.order,
+            qty: it.qty,
           })),
         })),
       }
@@ -1707,6 +987,141 @@ function ScreenLayoutCanvas() {
   }
   const resetStyle = () => {
     patchZone(selected.id, { backgroundStyle: styleCfg.dark !== undefined ? { dark: styleCfg.dark } : {} })
+  }
+
+  // T10 — carte personnalisée. Le dessin de la zone vit dans
+  // backgroundStyle.cardLayout ; un produit qui a son propre dessin le range
+  // dans backgroundStyle.cardLayouts[itemId] et retombe sur celui de la zone
+  // dès qu'on le retire.
+  const designerZone = cardDesigner ? layout?.zones?.find((z) => z.id === cardDesigner.zoneId) : null
+  const designerItem =
+    designerZone && cardDesigner?.itemId != null
+      ? designerZone.items?.find((it) => it.itemId === cardDesigner.itemId) || null
+      : null
+
+  // Images proposées au designer de carte : celles de la Bibliothèque (les
+  // catégories non-police), à plat.
+  const libraryImages = libraryCategories.flatMap((c) => c.assets || []).filter((a) => a?.url)
+
+  const uploadCardImage = async (file) => {
+    setError('')
+    try {
+      const fd = new FormData()
+      fd.append('image', await trimTransparentPadding(file))
+      const { data } = await api.post('/upload', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      return data.url
+    } catch (err) {
+      setError(err.response?.data?.error || 'Échec de l’upload de l’image')
+      return null
+    }
+  }
+
+  // Écriture directe (pas la file d'attente différée de patchZone) : le dessin
+  // représente un vrai travail, on doit savoir s'il est parti avant de fermer.
+  // Une erreur laissait sinon la fenêtre se fermer, puis le rechargement
+  // silencieux du layout effaçait le dessin sans un mot.
+  const putZoneBackgroundStyle = async (zone, backgroundStyleIn, extra = null) => {
+    let backgroundStyle = backgroundStyleIn
+    setCardSaving(true)
+    setCardError('')
+    // Répare au passage une contentBox héritée hors bornes : sinon le backend
+    // refuse toute écriture sur cette zone et le dessin ne part jamais.
+    backgroundStyle = sanitizeBackgroundStyle(backgroundStyle)
+    try {
+      await api.put(`/zones/${zone.id}`, { ...(extra || {}), backgroundStyle })
+      setLayout((l) =>
+        l
+          ? {
+              ...l,
+              zones: l.zones.map((z) =>
+                z.id === zone.id ? { ...z, ...(extra || {}), backgroundStyle } : z
+              ),
+            }
+          : l
+      )
+      setDirty(true)
+      setCardDesigner(null)
+      return true
+    } catch (err) {
+      setCardError(err.response?.data?.error || 'Impossible d’enregistrer la carte')
+      return false
+    } finally {
+      setCardSaving(false)
+    }
+  }
+
+  const saveCardLayout = (cardLayout) => {
+    if (!designerZone) return
+    const bs = designerZone.backgroundStyle || {}
+    const backgroundStyle =
+      cardDesigner.itemId != null
+        ? {
+            ...bs,
+            cardLayouts: { ...(bs.cardLayouts || {}), [String(cardDesigner.itemId)]: cardLayout },
+          }
+        : { ...bs, cardLayout }
+    return putZoneBackgroundStyle(designerZone, backgroundStyle)
+  }
+
+  // T10 (confort) — copier le dessin ouvert vers une autre zone. La zone cible
+  // passe en template "Personnalisé" et reçoit le dessin tel quel : les slots
+  // sont en % et les tailles de police dans le repère refW, donc la carte se
+  // remet d'elle-même à l'échelle de la cellule de la zone d'arrivée.
+  const copyCardLayoutTo = async (targetZoneId, cardLayout) => {
+    const target = layout?.zones?.find((z) => z.id === targetZoneId)
+    if (!target) return false
+    const backgroundStyle = sanitizeBackgroundStyle({ ...(target.backgroundStyle || {}), cardLayout })
+    setCardSaving(true)
+    setCardError('')
+    try {
+      await api.put(`/zones/${target.id}`, { cardTemplate: 'custom', backgroundStyle })
+      setLayout((l) =>
+        l
+          ? {
+              ...l,
+              zones: l.zones.map((z) =>
+                z.id === target.id ? { ...z, cardTemplate: 'custom', backgroundStyle } : z
+              ),
+            }
+          : l
+      )
+      setDirty(true)
+      return true
+    } catch (err) {
+      setCardError(err.response?.data?.error || 'Impossible de copier le dessin')
+      return false
+    } finally {
+      setCardSaving(false)
+    }
+  }
+
+  // Depuis le dessin d'un produit : en faire le dessin de toute la zone, et
+  // retirer au passage la surcharge de ce produit (sinon il garderait une copie
+  // figée qui ne suivrait plus les retouches faites au niveau de la zone).
+  const applyCardLayoutToZone = (cardLayout) => {
+    if (!designerZone) return
+    const bs = designerZone.backgroundStyle || {}
+    const rest = { ...(bs.cardLayouts || {}) }
+    if (cardDesigner?.itemId != null) delete rest[String(cardDesigner.itemId)]
+    const backgroundStyle = { ...bs, cardLayout }
+    if (Object.keys(rest).length === 0) delete backgroundStyle.cardLayouts
+    else backgroundStyle.cardLayouts = rest
+    // La zone doit passer en "Personnalisé", sinon le dessin qu'on vient d'y
+    // appliquer ne serait jamais rendu.
+    return putZoneBackgroundStyle(designerZone, backgroundStyle, { cardTemplate: 'custom' })
+  }
+
+  const clearCardOverride = () => {
+    if (!designerZone || cardDesigner?.itemId == null) return
+    const bs = designerZone.backgroundStyle || {}
+    const next = { ...(bs.cardLayouts || {}) }
+    delete next[String(cardDesigner.itemId)]
+    const backgroundStyle = { ...bs }
+    if (Object.keys(next).length === 0) delete backgroundStyle.cardLayouts
+    else backgroundStyle.cardLayouts = next
+    return putZoneBackgroundStyle(designerZone, backgroundStyle)
   }
 
   // T7.6 — screen background editor (layout.settings.background)
@@ -1877,6 +1292,25 @@ function ScreenLayoutCanvas() {
       imageUrl: url,
     }
     addElementToState(el)
+  }
+  // Same mechanism as addElementFromGalleryUrl — the asset's URL is already
+  // hosted, so no upload step needed. Jump to the "Éléments" tab afterward:
+  // that's what activates the on-canvas drag/select overlay for it (see the
+  // `panelTab === 'elements'` overlay below) instead of duplicating that
+  // logic for a second tab.
+  const addElementFromLibraryAsset = (asset) => {
+    const el = {
+      id: newElementId(),
+      type: 'image',
+      x: 40,
+      y: 40,
+      w: 20,
+      h: 20,
+      zIndex: nextElementZ(),
+      imageUrl: asset.url,
+    }
+    addElementToState(el)
+    setPanelTab('elements')
   }
   const handleElAddUpload = async (e) => {
     const file = e.target.files?.[0]
@@ -2091,18 +1525,20 @@ function ScreenLayoutCanvas() {
         {isAdmin && screen && layout && panelOpen && (
           <aside className="flex max-h-[75vh] min-h-0 flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white lg:sticky lg:top-24 lg:w-72 lg:max-h-[calc(100vh-7rem)] lg:flex-none dark:border-gray-800 dark:bg-white/[0.03]">
             <div className="flex border-b border-gray-100 dark:border-gray-800">
-{[
+              <div className="flex min-w-0 flex-1 overflow-x-auto">
+                {[
                     { key: 'produits', label: 'Produits' },
                     { key: 'presets', label: 'Presets' },
                     { key: 'zone', label: 'Config' },
                     { key: 'style', label: 'Style' },
                     { key: 'elements', label: 'Éléments' },
+                    { key: 'library', label: 'Bibliothèque' },
                   ].map((t) => (
                 <button
                   key={t.key}
                   type="button"
                   onClick={() => setPanelTab(t.key)}
-                  className={`flex flex-1 items-center justify-center gap-1.5 px-2 py-2.5 text-sm font-medium transition-colors ${
+                  className={`flex flex-none items-center justify-center gap-1.5 whitespace-nowrap px-2.5 py-2.5 text-sm font-medium transition-colors ${
                     panelTab === t.key
                       ? 'border-b-2 border-brand-500 text-brand-600 dark:text-brand-400'
                       : 'border-b-2 border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
@@ -2114,6 +1550,7 @@ function ScreenLayoutCanvas() {
                   )}
                 </button>
               ))}
+              </div>
               <button
                 type="button"
                 onClick={() => setPanelOpen(false)}
@@ -2326,6 +1763,54 @@ function ScreenLayoutCanvas() {
                           </option>
                         ))}
                       </select>
+
+                      {/* T9b — le prix ne dépendait que du template choisi (seule
+                          la carte « Image + détails » en portait un). Cette case
+                          le rend indépendant : un produit sans description peut
+                          garder son prix, et une carte détaillée peut le masquer. */}
+                      <label className="mt-3 flex cursor-pointer items-center gap-3 text-sm font-medium text-gray-700 dark:text-gray-400">
+                        <input
+                          type="checkbox"
+                          checked={zoneShowsPrice(selected)}
+                          onChange={(e) => patchStyle({ showPrice: e.target.checked })}
+                          className="size-4 rounded border-gray-300 text-brand-500 focus:ring-brand-500"
+                        />
+                        Afficher le prix
+                      </label>
+                      <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
+                        {styleCfg.showPrice === undefined
+                          ? `Par défaut pour ce template : ${defaultShowPrice(selected) ? 'affiché' : 'masqué'}.`
+                          : 'Choix manuel — indépendant du template et du réglage global de l’écran.'}
+                      </p>
+
+                      {/* T10 — le template « Personnalisé » n'a pas de disposition
+                          codée : elle se dessine ici, et s'applique à tous les
+                          produits de la zone (un produit peut ensuite avoir la
+                          sienne via l'icône stylo sur sa vignette). */}
+                      {selected.cardTemplate !== 'custom' && (
+                        <p className="mt-2 text-xs text-gray-400 dark:text-gray-500">
+                          Un seul produit peut quand même avoir sa carte à lui : icône stylo sur sa
+                          vignette dans le canvas.
+                        </p>
+                      )}
+
+                      {selected.cardTemplate === 'custom' && (
+                        <div className="mt-3 rounded-lg border border-brand-200 bg-brand-50/60 p-3 dark:border-brand-500/30 dark:bg-brand-500/10">
+                          <button
+                            type="button"
+                            onClick={() => setCardDesigner({ zoneId: selected.id, itemId: null })}
+                            className="flex w-full items-center justify-center gap-2 rounded-lg bg-brand-500 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-brand-600"
+                          >
+                            <PencilIcon className="size-4" />
+                            Perso — dessiner la carte
+                          </button>
+                          <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                            {selected.backgroundStyle?.cardLayout
+                              ? 'Dessin enregistré pour cette zone.'
+                              : 'Aucun dessin : la carte par défaut est utilisée en attendant.'}
+                          </p>
+                        </div>
+                      )}
                     </div>
 
                     <div>
@@ -2590,6 +2075,16 @@ function ScreenLayoutCanvas() {
                             disabled={zoneImgUploading}
                           />
                         </label>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setBgLibraryCatId(null)
+                            setBgLibraryOpen((v) => !v)
+                          }}
+                          className="rounded-lg border border-dashed border-gray-300 px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:border-brand-300 hover:text-brand-600 dark:border-gray-700 dark:text-gray-300 dark:hover:text-brand-400"
+                        >
+                          Bibliothèque
+                        </button>
                         {styleCfg.bgImage ? (
                           <button
                             type="button"
@@ -2607,6 +2102,65 @@ function ScreenLayoutCanvas() {
                           className="mt-2 h-24 w-full rounded-lg border border-gray-200 object-cover dark:border-gray-700"
                         />
                       ) : null}
+
+                      {bgLibraryOpen && (
+                        <div className="mt-2 space-y-2 rounded-lg border border-gray-200 p-2 dark:border-gray-700">
+                          {libraryCategories.length === 0 ? (
+                            <p className="text-xs text-gray-400">Bibliothèque vide.</p>
+                          ) : bgLibraryCatId == null ? (
+                            <div className="space-y-1">
+                              {libraryCategories.map((cat) => (
+                                <button
+                                  key={cat.id}
+                                  type="button"
+                                  onClick={() => setBgLibraryCatId(cat.id)}
+                                  className="flex w-full items-center justify-between rounded-md border border-gray-200 px-2.5 py-1.5 text-left text-xs font-medium text-gray-700 transition-colors hover:border-brand-300 hover:text-brand-600 dark:border-gray-700 dark:text-gray-300"
+                                >
+                                  <span>{cat.name}</span>
+                                  <span className="text-gray-400">{(cat.assets || []).length}</span>
+                                </button>
+                              ))}
+                            </div>
+                          ) : (
+                            (() => {
+                              const cat = libraryCategories.find((c) => c.id === bgLibraryCatId)
+                              const assets = cat?.assets || []
+                              return (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => setBgLibraryCatId(null)}
+                                    className="flex items-center gap-1 text-xs font-medium text-brand-600 dark:text-brand-400"
+                                  >
+                                    <ChevronLeftIcon className="size-3.5" />
+                                    {cat?.name}
+                                  </button>
+                                  {assets.length === 0 ? (
+                                    <p className="text-xs text-gray-400">Vide.</p>
+                                  ) : (
+                                    <div className="grid grid-cols-4 gap-1.5">
+                                      {assets.map((asset) => (
+                                        <button
+                                          key={asset.id}
+                                          type="button"
+                                          onClick={() => {
+                                            patchStyle({ bgImage: asset.url })
+                                            setBgLibraryOpen(false)
+                                          }}
+                                          title={asset.name || ''}
+                                          className="aspect-square overflow-hidden rounded-md border border-gray-200 bg-white transition-colors hover:border-brand-400 dark:border-gray-700 dark:bg-gray-900"
+                                        >
+                                          <img src={asset.url} alt="" className="h-full w-full object-cover" />
+                                        </button>
+                                      ))}
+                                    </div>
+                                  )}
+                                </>
+                              )
+                            })()
+                          )}
+                        </div>
+                      )}
                     </div>
 
                     {[
@@ -2949,6 +2503,35 @@ function ScreenLayoutCanvas() {
                             )}
                           </div>
 
+                          {['plain', 'hero'].includes(selectedElement.kind || 'plain') && (
+                            <div>
+                              <Label htmlFor={`el-font-${selectedElement.id}`}>Police</Label>
+                              <select
+                                id={`el-font-${selectedElement.id}`}
+                                value={selectedElement.fontFamily || ''}
+                                onChange={(e) =>
+                                  patchElementById(selectedElement.id, { fontFamily: e.target.value || undefined })
+                                }
+                                className="w-full rounded-lg border border-gray-300 bg-transparent px-3 py-2.5 text-sm text-gray-800 outline-none focus:border-brand-300 focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:text-white/90"
+                              >
+                                {FONT_OPTIONS.map((f) => (
+                                  <option key={f.value} value={f.value}>
+                                    {f.label}
+                                  </option>
+                                ))}
+                                {libraryFonts.length > 0 && (
+                                  <optgroup label="Bibliothèque">
+                                    {libraryFonts.map((f) => (
+                                      <option key={f.id} value={f.name}>
+                                        {f.name}
+                                      </option>
+                                    ))}
+                                  </optgroup>
+                                )}
+                              </select>
+                            </div>
+                          )}
+
                           {['banner', 'price'].includes(selectedElement.kind) && (
                             <div>
                               <Label>Fond</Label>
@@ -3125,6 +2708,68 @@ function ScreenLayoutCanvas() {
                 </div>
               </>
             )}
+
+            {panelTab === 'library' && (
+              <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
+                <p className="text-xs text-gray-400">
+                  Images/textures de la Bibliothèque — un clic les ajoute comme élément libre sur le canvas.
+                </p>
+
+                {libraryCategories.length === 0 ? (
+                  <p className="text-sm text-gray-400">
+                    Bibliothèque vide. Ajoutez des catégories depuis la page Bibliothèque.
+                  </p>
+                ) : libraryCatId == null ? (
+                  <div className="space-y-1.5">
+                    {libraryCategories.map((cat) => (
+                      <button
+                        key={cat.id}
+                        type="button"
+                        onClick={() => setLibraryCatId(cat.id)}
+                        className="flex w-full items-center justify-between rounded-lg border border-gray-200 px-3 py-2.5 text-left text-sm font-medium text-gray-700 transition-colors hover:border-brand-300 hover:text-brand-600 dark:border-gray-700 dark:text-gray-300"
+                      >
+                        <span>{cat.name}</span>
+                        <span className="text-xs text-gray-400">{(cat.assets || []).length}</span>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  (() => {
+                    const cat = libraryCategories.find((c) => c.id === libraryCatId)
+                    const assets = cat?.assets || []
+                    return (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => setLibraryCatId(null)}
+                          className="flex items-center gap-1 text-sm font-medium text-brand-600 dark:text-brand-400"
+                        >
+                          <ChevronLeftIcon className="size-4" />
+                          {cat?.name}
+                        </button>
+                        {assets.length === 0 ? (
+                          <p className="text-sm text-gray-400">Aucun élément dans cette catégorie.</p>
+                        ) : (
+                          <div className="grid grid-cols-3 gap-1.5">
+                            {assets.map((asset) => (
+                              <button
+                                key={asset.id}
+                                type="button"
+                                onClick={() => addElementFromLibraryAsset(asset)}
+                                title="Ajouter au canvas"
+                                className="aspect-square overflow-hidden rounded-md border border-gray-200 bg-white transition-colors hover:border-brand-400 dark:border-gray-700 dark:bg-gray-900"
+                              >
+                                <img src={asset.url} alt={asset.name || ''} className="h-full w-full object-cover" />
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </>
+                    )
+                  })()
+                )}
+              </div>
+            )}
           </aside>
         )}
 
@@ -3181,7 +2826,6 @@ function ScreenLayoutCanvas() {
                 ...(screenBg ? backgroundCss(screenBg) : {}),
               }}
             >
-              <BackgroundOverlays bg={screenBg} />
               {screenBg?.pattern === 'torn-paper' && (
                 <ZoneSeamMarkers
                   zones={layout.zones || []}
@@ -3236,6 +2880,7 @@ function ScreenLayoutCanvas() {
                 const zBg = zStyle.bgImage ? undefined : zStyle.bg
                 const zText = zStyle.text || (zStyle.dark ? STYLE_DEFAULTS.textDark : STYLE_DEFAULTS.textLight)
                 const zFontSize = zStyle.fontSize || null
+                const zShowPrice = zoneShowsPrice(zone)
 
                 const slotDnD = (key, { targetRow, targetCol, targetIndex }, paletteAware) => ({
                   onDragOver: (e) => {
@@ -3455,11 +3100,42 @@ function ScreenLayoutCanvas() {
                                   }
                                 >
                                   <CardTemplatePreview
-                                    template={zone.cardTemplate}
+                                    template={
+                                      hasOwnCardLayout(zone, item.itemId) ? 'custom' : zone.cardTemplate
+                                    }
                                     name={item.item?.name}
                                     accent={zAccent}
                                     text={zText}
+                                    showPrice={zShowPrice}
+                                    price={item.item?.price}
+                                    layout={
+                                      zone.cardTemplate === 'custom' || hasOwnCardLayout(zone, item.itemId)
+                                        ? cardLayoutFor(zone, item.itemId)
+                                        : null
+                                    }
                                   />
+                                  {isAdmin && (
+                                    <button
+                                      type="button"
+                                      onPointerDown={(e) => e.stopPropagation()}
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        setCardDesigner({ zoneId: zone.id, itemId: item.itemId })
+                                      }}
+                                      title={
+                                        hasOwnCardLayout(zone, item.itemId)
+                                          ? 'Carte personnalisée pour ce produit'
+                                          : 'Personnaliser la carte de ce produit'
+                                      }
+                                      className={`absolute -left-1 -top-1 z-10 flex size-3.5 items-center justify-center rounded-full bg-brand-500 text-white shadow transition-opacity hover:bg-brand-600 ${
+                                        hasOwnCardLayout(zone, item.itemId)
+                                          ? 'opacity-100'
+                                          : 'opacity-0 group-hover:opacity-100'
+                                      }`}
+                                    >
+                                      <PencilIcon className="size-2" />
+                                    </button>
+                                  )}
                                   {isAdmin && (
                                     <button
                                       type="button"
@@ -3526,10 +3202,19 @@ function ScreenLayoutCanvas() {
                               >
                                 <div className="h-5 min-w-0">
                                   <CardTemplatePreview
-                                    template={zone.cardTemplate}
+                                    template={
+                                      hasOwnCardLayout(zone, item.itemId) ? 'custom' : zone.cardTemplate
+                                    }
                                     name={item.item?.name}
                                     accent={zAccent}
                                     text={zText}
+                                    showPrice={zShowPrice}
+                                    price={item.item?.price}
+                                    layout={
+                                      zone.cardTemplate === 'custom' || hasOwnCardLayout(zone, item.itemId)
+                                        ? cardLayoutFor(zone, item.itemId)
+                                        : null
+                                    }
                                   />
                                 </div>
                                 {isAdmin && (
@@ -3555,6 +3240,28 @@ function ScreenLayoutCanvas() {
                                     }}
                                     className="absolute -left-1 -top-1 z-10 h-4 w-8 rounded border border-gray-400 bg-white text-[8px] text-gray-800 dark:bg-gray-800 dark:text-white/90"
                                   />
+                                )}
+                                {isAdmin && (
+                                  <button
+                                    type="button"
+                                    onPointerDown={(e) => e.stopPropagation()}
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      setCardDesigner({ zoneId: zone.id, itemId: item.itemId })
+                                    }}
+                                    title={
+                                      hasOwnCardLayout(zone, item.itemId)
+                                        ? 'Carte personnalisée pour ce produit'
+                                        : 'Personnaliser la carte de ce produit'
+                                    }
+                                    className={`absolute -right-6 -top-1 z-10 flex size-3.5 items-center justify-center rounded-full bg-brand-500 text-white shadow transition-opacity hover:bg-brand-600 ${
+                                      hasOwnCardLayout(zone, item.itemId)
+                                        ? 'opacity-100'
+                                        : 'opacity-0 group-hover:opacity-100'
+                                    }`}
+                                  >
+                                    <PencilIcon className="size-2" />
+                                  </button>
                                 )}
                                 {isAdmin && (
                                   <button
@@ -3892,7 +3599,6 @@ function ScreenLayoutCanvas() {
         <div className="space-y-5">
           <div className="relative aspect-video w-full overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700">
             <div className="absolute inset-0" style={backgroundCss(bgForm)} />
-            <BackgroundOverlays bg={bgForm} />
             {bgForm?.pattern === 'torn-paper' && (
               <ZoneSeamMarkers
                 zones={layout?.zones || []}
@@ -4090,6 +3796,33 @@ function ScreenLayoutCanvas() {
           </div>
         </div>
       </Modal>
+
+      {designerZone && (
+        <CardDesigner
+          open
+          zone={designerZone}
+          item={designerItem}
+          layout={cardLayoutFor(designerZone, cardDesigner?.itemId ?? null)}
+          fonts={libraryFonts}
+          images={libraryImages}
+          onUploadImage={uploadCardImage}
+          onSave={saveCardLayout}
+          onCopyTo={copyCardLayoutTo}
+          onApplyToZone={cardDesigner?.itemId != null ? applyCardLayoutToZone : null}
+          zones={(layout?.zones || []).filter((z) => z.id !== designerZone.id)}
+          saving={cardSaving}
+          error={cardError}
+          onClearOverride={
+            cardDesigner?.itemId != null && hasOwnCardLayout(designerZone, cardDesigner.itemId)
+              ? clearCardOverride
+              : null
+          }
+          onClose={() => {
+            setCardError('')
+            setCardDesigner(null)
+          }}
+        />
+      )}
     </div>
   )
 }

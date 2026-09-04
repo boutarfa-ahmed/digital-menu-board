@@ -6,12 +6,26 @@ import ListRowCard from '../cards/ListRowCard.jsx'
 import HeroBannerCard from '../cards/HeroBannerCard.jsx'
 import IconLabelCard from '../cards/IconLabelCard.jsx'
 import TextOnlyCard from '../cards/TextOnlyCard.jsx'
+import CustomCard from '../cards/CustomCard.jsx'
 import CategoryBanner from '../primitives/CategoryBanner.jsx'
 import ZoneBadge from '../ui/ZoneBadge.jsx'
 import { accentOf, cardFields, templateStyle } from '../cards/cardUtils.js'
 import PriceBadge from '../primitives/PriceBadge.jsx'
 import TierPricingHeader from '../primitives/TierPricingHeader.jsx'
 import { badgeStyleOf, currencyOf, badgeTypeOf } from '../../theme/designTokens'
+
+// T10 — dessin de carte appliqué à un produit : sa propre surcharge
+// (backgroundStyle.cardLayouts[itemId]) sinon celui de la zone
+// (backgroundStyle.cardLayout).
+function ownCardLayout(zone, itemId) {
+  const own = zone?.backgroundStyle?.cardLayouts?.[String(itemId)]
+  return own && Array.isArray(own.slots) ? own : null
+}
+
+function cardLayoutFor(zone, itemId) {
+  const bs = zone?.backgroundStyle || {}
+  return ownCardLayout(zone, itemId) || bs.cardLayout || null
+}
 
 function bannerSizeOf(fontSize) {
   if (!fontSize) return undefined
@@ -59,11 +73,12 @@ function ZoneTitle({ name, accent, banner, extraPrice, badgeType, theme, fontSiz
       </div>
     )
   }
+  const ruleHeight = Math.max(2, Math.round(3 * scale))
   return (
     <div className="mb-6 flex items-center gap-4">
-      <span className="h-px flex-1" style={{ background: accent, opacity: 0.35 }} />
+      <span className="flex-1 rounded-full" style={{ height: ruleHeight, background: accent, opacity: 0.35 }} />
       {title}
-      <span className="h-px flex-1" style={{ background: accent, opacity: 0.35 }} />
+      <span className="flex-1 rounded-full" style={{ height: ruleHeight, background: accent, opacity: 0.35 }} />
     </div>
   )
 }
@@ -77,27 +92,53 @@ function ZoneTitle({ name, accent, banner, extraPrice, badgeType, theme, fontSiz
 // longer name (wrapping to 2 lines) push its own image up/down relative to
 // a neighbor with a 1-line name, so images drifted out of row with each
 // other across the grid even though every cell is the same size.
-function GridImageCell({ zi, template, scale = 1 }) {
-  const { name, imageUrl } = cardFields(zi.item)
+function GridImageCell({ zi, template, scale = 1, theme, showPrice = false, badgeType, variant }) {
+  const { name, imageUrl, price } = cardFields(zi.item)
   if (!imageUrl) return null
   const ts = templateStyle(template)
   const s = ts.scale * scale
-  const maxH = Math.min(96, Math.round(78 * s))
-  const maxW = Math.min(98, Math.round(85 * s))
-  const labelSize = Math.round(14 * s)
+  const maxH = Math.min(100, Math.round(78 * s))
+  const maxW = Math.min(100, Math.round(85 * s))
+  // cqmin (% of the cell's smaller side), not fixed px: keeps the name
+  // proportional to the image above it when gridConfig rows/cols change the
+  // cell size, instead of only tracking the zone-wide `scale`.
+  const labelSize = `clamp(11px, ${(6 * s).toFixed(1)}cqmin, 30px)`
   return (
     <div className="flex h-full w-full flex-col items-center gap-2 p-2">
       <div className="flex min-h-0 w-full flex-1 items-center justify-center">
-        <img
-          src={imageUrl}
-          alt={name}
-          className="max-h-full max-w-full object-contain"
-          style={{ maxHeight: `${maxH}%`, maxWidth: `${maxW}%`, filter: 'drop-shadow(0 8px 10px rgba(0,0,0,0.35))' }}
-        />
+        {/* Boîte photo = exactement les bornes maxH/maxW que l'image pouvait
+            déjà occuper (l'image garde ses propres max-h/max-w à 100% de
+            cette boîte, donc la mise en page ne bouge pas). L'avoir en
+            élément à part donne au badge prix un coin haut-droit à viser :
+            celui de la photo, pas celui de la cellule. */}
+        <div
+          className="relative flex items-center justify-center"
+          style={{ height: `${maxH}%`, width: `${maxW}%` }}
+        >
+          <img
+            src={imageUrl}
+            alt={name}
+            className="max-h-full max-w-full object-contain"
+            style={{ filter: 'drop-shadow(0 8px 10px rgba(0,0,0,0.35))' }}
+          />
+          {showPrice && price != null ? (
+            <div className="absolute right-0 top-0 z-10 -translate-y-1/4 translate-x-1/4">
+              <PriceBadge
+                price={price}
+                size="sm"
+                fontSize={Math.round(16 * s)}
+                badgeStyle={badgeStyleOf(theme)}
+                badgeType={badgeTypeOf(badgeType)}
+                variant={variant}
+                currency={currencyOf(theme)}
+              />
+            </div>
+          ) : null}
+        </div>
       </div>
       <span
         className="line-clamp-2 flex-none text-center font-menu-header uppercase leading-tight tracking-wide text-menu-text"
-        style={{ fontSize: labelSize, minHeight: Math.round(labelSize * 1.3 * 2) }}
+        style={{ fontSize: labelSize, minHeight: `calc(${labelSize} * 2.6)` }}
       >
         {name}
       </span>
@@ -105,7 +146,7 @@ function GridImageCell({ zi, template, scale = 1 }) {
   )
 }
 
-function GridContent({ zone, theme, scale = 1, badgeType, priceVariant }) {
+function GridContent({ zone, theme, scale = 1, badgeType, priceVariant, showPrice }) {
   const rows = zone.gridConfig?.rows || 1
   const cols = zone.gridConfig?.cols || 1
   const items = zone.items || []
@@ -113,15 +154,37 @@ function GridContent({ zone, theme, scale = 1, badgeType, priceVariant }) {
   const isIconLabel = template === 'icon-label'
   const isTextOnly = template === 'text-only'
   const isImageDetail = template === 'image-title-desc-price'
+  const isCustom = template === 'custom'
   const cells = Array.from({ length: rows * cols }, (_, i) => {
     const r = Math.floor(i / cols)
     const c = i % cols
     return items.find((it) => it.row === r && it.col === c)
   })
 
+  // "Afficher le prix" (zone) : les cartes image+details montrent le prix par
+  // defaut (showPrice !== false), les autres templates ne le montrent que si
+  // la case est explicitement cochee (showPrice === true).
+  const priceProps = { theme, badgeType, variant: priceVariant }
+
   const cellContent = (zi, i) => {
-    if (isIconLabel) return <IconLabelCard item={zi.item} theme={theme} scale={scale} />
-    if (isTextOnly) return <TextOnlyCard item={zi.item} theme={theme} scale={scale} />
+    // Un produit qui a son propre dessin (icône stylo) rend une carte perso
+    // même dans une zone restée en "Compact" / "Par défaut" : seul ce produit
+    // change, ses voisins gardent le template de la zone.
+    const own = ownCardLayout(zone, zi.itemId)
+    if (isCustom || own)
+      return (
+        <CustomCard
+          item={zi.item}
+          layout={own || cardLayoutFor(zone, zi.itemId)}
+          badgeConfig={zone.badgeConfig}
+          qty={zi.qty != null ? zi.qty : null}
+          {...priceProps}
+        />
+      )
+    if (isIconLabel)
+      return <IconLabelCard item={zi.item} scale={scale} showPrice={showPrice === true} {...priceProps} />
+    if (isTextOnly)
+      return <TextOnlyCard item={zi.item} scale={scale} showPrice={showPrice === true} {...priceProps} />
     if (isImageDetail) {
       const c = i % cols
       const mirror = c >= Math.ceil(cols / 2)
@@ -129,7 +192,7 @@ function GridContent({ zone, theme, scale = 1, badgeType, priceVariant }) {
         <ImageTitleDescPriceCard
           item={zi.item}
           theme={theme}
-          showPrice
+          showPrice={showPrice !== false}
           template="default"
           zoneSize="sm"
           mirror={mirror}
@@ -139,7 +202,15 @@ function GridContent({ zone, theme, scale = 1, badgeType, priceVariant }) {
         />
       )
     }
-    return <GridImageCell zi={zi} template={template} scale={scale} />
+    return (
+      <GridImageCell
+        zi={zi}
+        template={template}
+        scale={scale}
+        showPrice={showPrice === true}
+        {...priceProps}
+      />
+    )
   }
 
   return (
@@ -160,7 +231,11 @@ function GridContent({ zone, theme, scale = 1, badgeType, priceVariant }) {
     >
       {cells.map((zi, i) =>
         zi ? (
-          <div key={zi.itemId} className="flex h-full w-full min-h-0 min-w-0 items-center justify-center">
+          <div
+            key={zi.itemId}
+            className="flex h-full w-full min-h-0 min-w-0 items-center justify-center"
+            style={{ containerType: 'size' }}
+          >
             {cellContent(zi, i)}
           </div>
         ) : (
@@ -171,57 +246,100 @@ function GridContent({ zone, theme, scale = 1, badgeType, priceVariant }) {
   )
 }
 
-function ListContent({ zone, theme, settings, scale = 1, badgeType, priceVariant }) {
+function ListContent({ zone, theme, settings, scale = 1, badgeType, priceVariant, zoneShowPrice }) {
   const items = zone.items || []
-  const showPrice = settings?.showPrices !== false
+  // Le choix de la zone ("Afficher le prix") l'emporte sur le reglage global
+  // de l'ecran ; sans choix explicite on garde le reglage global.
+  const showPrice = zoneShowPrice === undefined ? settings?.showPrices !== false : zoneShowPrice
   const isTextOnly = zone.cardTemplate === 'text-only'
   const isImageDetail = zone.cardTemplate === 'image-title-desc-price'
+  const isCustom = zone.cardTemplate === 'custom'
+  const anyCustom = isCustom || items.some((zi) => ownCardLayout(zone, zi.itemId))
+  const visible = items.slice(0, isImageDetail && !anyCustom ? 8 : 12)
+
+  // Une ligne à la fois : un produit qui porte son propre dessin rend une carte
+  // perso même si la zone est restée sur un autre template, ses voisins gardent
+  // le rendu du template.
+  const renderRow = (zi) => {
+    const own = ownCardLayout(zone, zi.itemId)
+    if (isCustom || own) {
+      // La boîte de la ligne est le repère des % du dessin, exactement comme
+      // une cellule de grille.
+      return (
+        <div key={zi.itemId} className="min-h-0 w-full flex-1">
+          <CustomCard
+            item={zi.item}
+            layout={own || cardLayoutFor(zone, zi.itemId)}
+            theme={theme}
+            badgeConfig={zone.badgeConfig}
+            qty={zi.qty != null ? zi.qty : null}
+            badgeType={badgeType}
+            variant={priceVariant}
+          />
+        </div>
+      )
+    }
+    if (isTextOnly) {
+      return (
+        <TextOnlyCard
+          key={zi.itemId}
+          item={zi.item}
+          theme={theme}
+          scale={scale}
+          showPrice={zoneShowPrice === true}
+          badgeType={badgeType}
+          variant={priceVariant}
+        />
+      )
+    }
+    if (isImageDetail) {
+      return (
+        <ImageTitleDescPriceCard
+          key={zi.itemId}
+          item={zi.item}
+          theme={theme}
+          showPrice={showPrice}
+          template="default"
+          zoneSize="sm"
+          scale={scale}
+          badgeType={badgeType}
+          variant={priceVariant}
+        />
+      )
+    }
+    return (
+      <ListRowCard
+        key={zi.itemId}
+        item={zi.item}
+        theme={theme}
+        showPrice={showPrice}
+        template={zone.cardTemplate}
+        qtyLabel={zi.qty != null ? zi.qty : null}
+        scale={scale}
+        badgeType={badgeType}
+        variant={priceVariant}
+      />
+    )
+  }
+
   return (
     <div
       className={`flex min-h-0 flex-1 flex-col justify-center overflow-hidden ${
-        isTextOnly || isImageDetail ? 'gap-5' : ''
+        isTextOnly || isImageDetail || anyCustom ? 'gap-5' : ''
       }`}
     >
       {items.length === 0 ? (
         <p className="text-center font-menu-body text-sm text-menu-text-muted">Vide</p>
-      ) : isTextOnly ? (
-        items.slice(0, 12).map((zi) => <TextOnlyCard key={zi.itemId} item={zi.item} theme={theme} scale={scale} />)
-      ) : isImageDetail ? (
-        items.slice(0, 8).map((zi) => (
-          <ImageTitleDescPriceCard
-            key={zi.itemId}
-            item={zi.item}
-            theme={theme}
-            showPrice={showPrice}
-            template="default"
-            zoneSize="sm"
-            scale={scale}
-            badgeType={badgeType}
-            variant={priceVariant}
-          />
-        ))
       ) : (
-        items.slice(0, 12).map((zi) => (
-          <ListRowCard
-            key={zi.itemId}
-            item={zi.item}
-            theme={theme}
-            showPrice={showPrice}
-            template={zone.cardTemplate}
-            qtyLabel={zi.qty != null ? zi.qty : null}
-            scale={scale}
-            badgeType={badgeType}
-            variant={priceVariant}
-          />
-        ))
+        visible.map(renderRow)
       )}
     </div>
   )
 }
 
-function BannerContent({ zone, theme, settings, accent, fontSize, badgeType }) {
+function BannerContent({ zone, theme, settings, accent, fontSize, badgeType, zoneShowPrice }) {
   const first = zone.items?.[0]
-  const showPrice = settings?.showPrices !== false
+  const showPrice = zoneShowPrice === undefined ? settings?.showPrices !== false : zoneShowPrice
   const scale = fontSize ? fontSize / 12 : 1
   if (Array.isArray(zone.badgeConfig?.tiers) && zone.badgeConfig.tiers.length > 0) {
     return (
@@ -252,10 +370,7 @@ function BannerContent({ zone, theme, settings, accent, fontSize, badgeType }) {
     )
   }
   return (
-    <div
-      className="flex h-full w-full flex-col items-center justify-center gap-3"
-      style={{ background: 'linear-gradient(135deg, rgba(255,255,255,0.08), rgba(0,0,0,0.25))' }}
-    >
+    <div className="flex h-full w-full flex-col items-center justify-center gap-3">
       {zone.name ? (
         <h2 className="font-menu-header uppercase tracking-wide" style={{ color: accent, fontSize: Math.round(44 * scale) }}>
           {zone.name}
@@ -310,6 +425,11 @@ export default function ZoneRenderer({ zone, theme, settings, seamEdges }) {
   // that predate this control don't change appearance.
   const priceVariant = zStyle.dark === undefined ? undefined : isDark ? 'light' : 'dark'
 
+  // T9b — "Afficher le prix" de la zone. undefined = comportement d'origine
+  // (image+details et listes affichent le prix, vignettes/icones/texte non),
+  // true = force l'affichage sur tous les templates, false = le masque.
+  const zoneShowPrice = typeof zStyle.showPrice === 'boolean' ? zStyle.showPrice : undefined
+
   // T9: sub-zone — the product grid/list container's own box within the zone,
   // as % of the space left under the title (not the whole zone), so it never
   // needs to account for the title's own variable height. Undefined = fill
@@ -328,14 +448,14 @@ export default function ZoneRenderer({ zone, theme, settings, seamEdges }) {
 
   let content
   if (isBanner) {
-    content = <BannerContent zone={zone} theme={theme} settings={settings} accent={accent} fontSize={zStyle.fontSize} badgeType={zStyle.badgeType} />
+    content = <BannerContent zone={zone} theme={theme} settings={settings} accent={accent} fontSize={zStyle.fontSize} badgeType={zStyle.badgeType} zoneShowPrice={zoneShowPrice} />
   } else if (isGrid) {
     content = (
       <div className="flex h-full flex-col">
         <ZoneTitle name={zone.name} accent={accent} extraPrice={zone.backgroundStyle?.extraPrice} badgeType={zStyle.badgeType} theme={theme} banner={zone.backgroundStyle?.banner} fontSize={zStyle.fontSize} />
         <div className="relative min-h-0 flex-1">
           <div className="flex h-full flex-col" style={contentBoxStyle}>
-            <GridContent zone={zone} theme={theme} scale={cardScale} badgeType={zStyle.badgeType} priceVariant={priceVariant} />
+            <GridContent zone={zone} theme={theme} scale={cardScale} badgeType={zStyle.badgeType} priceVariant={priceVariant} showPrice={zoneShowPrice} />
           </div>
         </div>
       </div>
@@ -346,7 +466,7 @@ export default function ZoneRenderer({ zone, theme, settings, seamEdges }) {
         <ZoneTitle name={zone.name} accent={accent} extraPrice={zone.backgroundStyle?.extraPrice} badgeType={zStyle.badgeType} theme={theme} banner={zone.backgroundStyle?.banner} fontSize={zStyle.fontSize} />
         <div className="relative min-h-0 flex-1">
           <div className="flex h-full flex-col" style={contentBoxStyle}>
-            <ListContent zone={zone} theme={theme} settings={settings} scale={cardScale} badgeType={zStyle.badgeType} priceVariant={priceVariant} />
+            <ListContent zone={zone} theme={theme} settings={settings} scale={cardScale} badgeType={zStyle.badgeType} priceVariant={priceVariant} zoneShowPrice={zoneShowPrice} />
           </div>
         </div>
       </div>
@@ -360,8 +480,10 @@ export default function ZoneRenderer({ zone, theme, settings, seamEdges }) {
           <ImageTitleDescPriceCard
             item={zone.items[0].item}
             theme={theme}
-            showPrice={false}
+            showPrice={zoneShowPrice === true}
             template={zone.cardTemplate}
+            badgeType={zStyle.badgeType}
+            variant={priceVariant}
           />
         ) : null}
       </div>
