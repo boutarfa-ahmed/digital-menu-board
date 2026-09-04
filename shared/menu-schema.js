@@ -113,6 +113,15 @@ export const CARD_VALIGNS = ['start', 'center', 'end']
 export const CARD_SHAPES = ['rect', 'line']
 export const CARD_FITS = ['contain', 'cover']
 
+// À quoi la taille de police d'un slot se rapporte. `fontSize` reste toujours
+// exprimée en px du repère de dessin (refW) ; l'unité décide seulement de la
+// dimension de la carte à laquelle ce ratio s'applique au rendu :
+//   cqw   — % de la LARGEUR de la carte (défaut, comportement d'origine)
+//   cqmin — % du PLUS PETIT côté : le texte rétrécit aussi quand la carte
+//           s'aplatit, ce que font les vignettes et les icônes+libellé
+//   px    — taille fixe, ne suit pas la carte (à réserver aux cas précis)
+export const FONT_UNITS = ['cqw', 'cqmin', 'px']
+
 // Badge de zone (T7.3) : JSON posé sur la zone, pas de table dédiée.
 export const BADGE_STYLES = ['torn-paper', 'ribbon', 'circle-stamp']
 export const BADGE_STYLE_LABELS = {
@@ -183,8 +192,11 @@ export const IMAGE_URL_MAX = 2048
 export const CONTENT_BOX_MIN = 10
 export const EL_IMAGE_MAX_PX = 1000
 
-// Couleur : hex (#abc → #aabbccdd), rgb(a)/hsl(a), ou un mot-clé CSS.
-export const HEX_OR_CSS_COLOR = /^(#[0-9a-fA-F]{3,8}|rgba?\([^)]+\)|hsla?\([^)]+\)|[a-zA-Z]+)$/
+// Couleur : hex (#abc → #aabbccdd), rgb(a)/hsl(a), un mot-clé CSS, ou un jeton
+// du thème — var(--menu-accent), var(--menu-text-muted)... Les jetons laissent
+// un dessin suivre les couleurs de sa zone au lieu de les figer, ce dont les
+// modèles de carte ci-dessous ont besoin.
+export const HEX_OR_CSS_COLOR = /^(#[0-9a-fA-F]{3,8}|rgba?\([^)]+\)|hsla?\([^)]+\)|var\(--[A-Za-z0-9_-]+\)|[a-zA-Z]+)$/
 
 
 // ============================================================================
@@ -231,6 +243,154 @@ export const DEFAULT_CARD_SLOTS = [
 // Largeur de référence supposée quand un dessin n'en déclare pas : les tailles
 // de police de DEFAULT_CARD_SLOTS sont exprimées dans ce repère.
 export const CARD_REF_W_FALLBACK = 400
+
+// Repère commun des modèles ci-dessous : leurs tailles de police sont écrites
+// dans une carte large de 400px. presetCardLayout() les remet à l'échelle de la
+// cellule réelle de la zone.
+const PRESET_REF_W = 400
+
+// ---------------------------------------------------------------------------
+// MODÈLES DE CARTE
+// ---------------------------------------------------------------------------
+//
+// Une mise en page de carte est une donnée, pas du code : chaque modèle est une
+// liste de slots, exactement ce que l'éditeur produit quand on dessine à la
+// main. Ajouter un modèle = ajouter une entrée ici, jamais un composant.
+//
+// Les couleurs utilisent les jetons du thème (var(--menu-accent), ...) pour que
+// le même modèle s'adapte à une zone claire comme à une zone sombre.
+export const CARD_PRESETS = [
+  {
+    key: 'thumb',
+    label: 'Vignette',
+    description: 'Photo en grand, nom dessous — les grilles de produits.',
+    slots: [
+      { id: 'image', type: 'image', x: 4, y: 2, w: 92, h: 68, fit: 'contain', zIndex: 1 },
+      {
+        id: 'name',
+        type: 'name',
+        x: 2, y: 72, w: 96, h: 26,
+        fontSize: 26, fontUnit: 'cqmin', fontMin: 11, fontMax: 30,
+        align: 'center', valign: 'start', uppercase: true, bold: true, lineClamp: 2, zIndex: 2,
+      },
+    ],
+  },
+  {
+    key: 'icon-label',
+    label: 'Icône + libellé',
+    description: 'Photo carrée cadrée serré, libellé en capitales dessous.',
+    slots: [
+      { id: 'image', type: 'image', x: 16, y: 4, w: 68, h: 64, fit: 'cover', zIndex: 1 },
+      {
+        id: 'name',
+        type: 'name',
+        x: 2, y: 72, w: 96, h: 24,
+        fontSize: 34, fontUnit: 'cqmin', fontMin: 10, fontMax: 32,
+        align: 'center', valign: 'start', uppercase: true, bold: true, lineClamp: 2, zIndex: 2,
+      },
+    ],
+  },
+  {
+    key: 'text-only',
+    label: 'Texte seul',
+    description: 'Titre en couleur d’accent puis description — sans photo.',
+    slots: [
+      {
+        id: 'name',
+        type: 'name',
+        x: 3, y: 6, w: 94, h: 26,
+        fontSize: 30, color: 'var(--menu-accent)',
+        align: 'left', valign: 'center', uppercase: true, bold: true, lineClamp: 2, zIndex: 2,
+      },
+      {
+        id: 'desc',
+        type: 'desc',
+        x: 3, y: 36, w: 94, h: 58,
+        fontSize: 22, align: 'left', valign: 'start', lineClamp: 4, zIndex: 2,
+      },
+    ],
+  },
+  {
+    key: 'image-details',
+    label: 'Image + détails',
+    description: 'Photo à gauche, nom / description / prix à droite.',
+    slots: [
+      { id: 'image', type: 'image', x: 2, y: 8, w: 34, h: 84, fit: 'contain', zIndex: 1 },
+      {
+        id: 'name',
+        type: 'name',
+        x: 39, y: 10, w: 59, h: 24,
+        fontSize: 30, align: 'left', valign: 'center', uppercase: true, bold: true, lineClamp: 2, zIndex: 2,
+      },
+      {
+        id: 'desc',
+        type: 'desc',
+        x: 39, y: 36, w: 59, h: 34,
+        fontSize: 19, align: 'left', valign: 'start', lineClamp: 3, zIndex: 2,
+      },
+      { id: 'price', type: 'price', x: 39, y: 72, w: 40, h: 24, fontSize: 30, align: 'left', valign: 'center', zIndex: 3 },
+    ],
+  },
+  {
+    key: 'list-row',
+    label: 'Ligne de liste',
+    description: 'Miniature, nom, quantité, prix à droite, trait de séparation.',
+    slots: [
+      { id: 'image', type: 'image', x: 1, y: 10, w: 14, h: 76, fit: 'contain', zIndex: 1 },
+      {
+        id: 'name',
+        type: 'name',
+        x: 17, y: 22, w: 44, h: 52,
+        fontSize: 24, align: 'left', valign: 'center', uppercase: true, bold: true, lineClamp: 2, zIndex: 2,
+      },
+      { id: 'qty', type: 'qty', x: 63, y: 30, w: 10, h: 36, fontSize: 18, align: 'center', valign: 'center', zIndex: 2 },
+      { id: 'price', type: 'price', x: 74, y: 24, w: 25, h: 48, fontSize: 28, align: 'right', valign: 'center', zIndex: 3 },
+      {
+        id: 'rule',
+        type: 'shape',
+        shape: 'line',
+        x: 0, y: 97, w: 100, h: 2,
+        bg: 'var(--menu-text-muted)', opacity: 0.25, zIndex: 0,
+      },
+    ],
+  },
+  {
+    key: 'full-bleed',
+    label: 'Plein cadre',
+    description: 'Photo qui remplit la carte, nom et prix posés dessus.',
+    slots: [
+      { id: 'image', type: 'image', x: 0, y: 0, w: 100, h: 100, fit: 'cover', zIndex: 1 },
+      { id: 'veil', type: 'shape', shape: 'rect', x: 0, y: 55, w: 100, h: 45, bg: '#000000', opacity: 0.55, zIndex: 2 },
+      {
+        id: 'name',
+        type: 'name',
+        x: 4, y: 62, w: 62, h: 22,
+        fontSize: 30, color: '#FFFFFF',
+        align: 'left', valign: 'center', uppercase: true, bold: true, lineClamp: 2, zIndex: 3,
+      },
+      { id: 'price', type: 'price', x: 62, y: 66, w: 36, h: 26, fontSize: 30, align: 'right', valign: 'center', zIndex: 4 },
+    ],
+  },
+]
+
+export const CARD_PRESET_KEYS = CARD_PRESETS.map((p) => p.key)
+
+// Le modèle mis à l'échelle de la cellule réelle de la zone : les positions
+// sont déjà en %, seules les tailles de police ont besoin du repère.
+export function presetCardLayout(key, zone) {
+  const preset = CARD_PRESETS.find((p) => p.key === key)
+  if (!preset) return null
+  const { w, h } = cardCellSize(zone)
+  const base = Math.max(120, Math.min(w, 1200))
+  const k = base / PRESET_REF_W
+  return {
+    refW: base,
+    refH: Math.max(80, Math.round(h * (base / Math.max(1, w)))),
+    slots: preset.slots.map((s) =>
+      s.fontSize === undefined ? { ...s } : { ...s, fontSize: Math.max(6, Math.round(s.fontSize * k)) }
+    ),
+  }
+}
 
 
 // ============================================================================
@@ -603,6 +763,25 @@ export function validateCardLayout(layout, path) {
     if (slot.fontSize !== undefined && (!isNum(slot.fontSize) || slot.fontSize < 4 || slot.fontSize > FONT_SIZE_MAX_TEXT)) {
       errors.push(`${p}.fontSize must be a number between 4 and ${FONT_SIZE_MAX_TEXT}`)
     }
+    if (slot.fontUnit !== undefined && !FONT_UNITS.includes(slot.fontUnit)) {
+      errors.push(`${p}.fontUnit must be one of ${FONT_UNITS.join(', ')}`)
+    }
+    // Bornes en px réels du texte mis à l'échelle : évite qu'une carte minuscule
+    // rende un texte illisible, ou qu'une carte plein écran l'affiche énorme.
+    for (const f of ['fontMin', 'fontMax']) {
+      if (slot[f] !== undefined && (!isNum(slot[f]) || slot[f] < 4 || slot[f] > FONT_SIZE_MAX_TEXT)) {
+        errors.push(`${p}.${f} must be a number between 4 and ${FONT_SIZE_MAX_TEXT}`)
+      }
+    }
+    if (isNum(slot.fontMin) && isNum(slot.fontMax) && slot.fontMin > slot.fontMax) {
+      errors.push(`${p}.fontMin must not exceed ${p}.fontMax`)
+    }
+    if (slot.lineClamp !== undefined && (!Number.isInteger(slot.lineClamp) || slot.lineClamp < 1 || slot.lineClamp > 10)) {
+      errors.push(`${p}.lineClamp must be an integer between 1 and 10`)
+    }
+    if (slot.borderWidth !== undefined && (!isNum(slot.borderWidth) || slot.borderWidth < 0 || slot.borderWidth > 20)) {
+      errors.push(`${p}.borderWidth must be a number between 0 and 20`)
+    }
     if (slot.rotation !== undefined && (!isNum(slot.rotation) || slot.rotation < -180 || slot.rotation > 180)) {
       errors.push(`${p}.rotation must be a number between -180 and 180`)
     }
@@ -612,7 +791,7 @@ export function validateCardLayout(layout, path) {
     if (slot.opacity !== undefined && (!isNum(slot.opacity) || slot.opacity < 0 || slot.opacity > 1)) {
       errors.push(`${p}.opacity must be a number between 0 and 1`)
     }
-    for (const f of ['color', 'bg']) {
+    for (const f of ['color', 'bg', 'border']) {
       if (slot[f] !== undefined && slot[f] !== null && !isColor(slot[f])) {
         errors.push(`${p}.${f} must be a valid color`)
       }

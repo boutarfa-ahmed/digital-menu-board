@@ -5,8 +5,10 @@ import {
   SLOT_LABELS,
   SINGLETON_SLOTS,
   TEXT_SLOTS,
+  CARD_PRESETS,
   cardCellSize,
   defaultCardLayout,
+  presetCardLayout,
   newSlot,
   clampPct,
 } from './cardLayout'
@@ -35,7 +37,9 @@ const SAMPLE = { name: 'Nom du produit', description: 'Description du produit', 
 // Rendu d'un slot dans la maquette. `px` convertit une taille de police du
 // repère de dessin (refW) vers les pixels réels de la maquette à l'écran.
 function SlotPreview({ slot, data, accent, textColor, px }) {
-  const fontSize = Math.max(6, px(slot.fontSize || 16))
+  const fontSize = px(slot, 16)
+  const border = slot.border ? `${slot.borderWidth ?? 2}px solid ${slot.border}` : undefined
+  const radius = slot.radius ? `${slot.radius}px` : undefined
   const common = {
     fontFamily: slot.fontFamily || undefined,
     color: slot.color || textColor,
@@ -46,11 +50,24 @@ function SlotPreview({ slot, data, accent, textColor, px }) {
     lineHeight: 1.15,
     textAlign: slot.align || 'left',
     width: '100%',
+    ...(slot.lineClamp
+      ? {
+          display: '-webkit-box',
+          WebkitBoxOrient: 'vertical',
+          WebkitLineClamp: slot.lineClamp,
+          overflow: 'hidden',
+        }
+      : null),
   }
 
   if (slot.type === 'asset') {
     return slot.imageUrl ? (
-      <img src={slot.imageUrl} alt="" className="h-full w-full" style={{ objectFit: slot.fit || 'contain' }} />
+      <img
+        src={slot.imageUrl}
+        alt=""
+        className="h-full w-full"
+        style={{ objectFit: slot.fit || 'contain', border, borderRadius: radius }}
+      />
     ) : (
       <div className="flex h-full w-full items-center justify-center rounded border border-dashed border-current/40 px-1 text-center text-[10px] opacity-60">
         Choisir une image
@@ -63,10 +80,13 @@ function SlotPreview({ slot, data, accent, textColor, px }) {
         src={data.imageUrl}
         alt=""
         className="h-full w-full"
-        style={{ objectFit: slot.fit || 'contain' }}
+        style={{ objectFit: slot.fit || 'contain', border, borderRadius: radius }}
       />
     ) : (
-      <div className="flex h-full w-full items-center justify-center rounded border border-dashed border-current/40 text-[10px] opacity-60">
+      <div
+        className="flex h-full w-full items-center justify-center rounded border border-dashed border-current/40 text-[10px] opacity-60"
+        style={{ border, borderRadius: radius }}
+      >
         Photo
       </div>
     )
@@ -77,6 +97,7 @@ function SlotPreview({ slot, data, accent, textColor, px }) {
         className="h-full w-full"
         style={{
           background: slot.bg || accent,
+          border,
           borderRadius: slot.shape === 'line' ? 9999 : `${slot.radius ?? 0}px`,
           opacity: slot.opacity ?? 1,
         }}
@@ -93,7 +114,7 @@ function SlotPreview({ slot, data, accent, textColor, px }) {
           background: '#0D0D0D',
           color: '#FFFFFF',
           padding: '0.15em 0.4em',
-          fontSize: Math.max(7, px(slot.fontSize || 26)),
+          fontSize: px(slot, 26),
         }}
       >
         {Number(data.price ?? 0).toFixed(2)}
@@ -106,7 +127,7 @@ function SlotPreview({ slot, data, accent, textColor, px }) {
         className="inline-flex items-center justify-center rounded-full font-bold text-white"
         style={{
           background: slot.color || accent,
-          fontSize: Math.max(7, px(slot.fontSize || 18)),
+          fontSize: px(slot, 18),
           width: '2em',
           height: '2em',
         }}
@@ -123,7 +144,7 @@ function SlotPreview({ slot, data, accent, textColor, px }) {
           background: slot.color || accent,
           color: '#FFFFFF',
           padding: '0.15em 0.4em',
-          fontSize: Math.max(7, px(slot.fontSize || 16)),
+          fontSize: px(slot, 16),
         }}
       >
         {slot.text || data.badgeText || 'PROMO'}
@@ -305,8 +326,19 @@ export default function CardDesigner({
     canvasW = canvasH * ratio
   }
 
-  // px du repère de dessin -> px de la maquette affichée
-  const px = (v) => (canvasW ? (v * canvasW) / (ref.refW || canvasW) : v)
+  // Taille de police d'un slot -> px de la maquette affichée. Même formule que
+  // le rendu TV (CustomCard) : l'unité choisit la dimension de référence et
+  // fontMin/fontMax bornent le résultat, pour que la maquette ne mente pas.
+  const px = (slot, fallback = 16) => {
+    const size = slot.fontSize || fallback
+    if (!canvasW) return size
+    if (slot.fontUnit === 'px') return size
+    const basis = slot.fontUnit === 'cqmin' ? Math.min(canvasW, canvasH) : canvasW
+    let out = (size / (ref.refW || canvasW)) * basis
+    if (Number.isFinite(slot.fontMin)) out = Math.max(slot.fontMin, out)
+    if (Number.isFinite(slot.fontMax)) out = Math.min(slot.fontMax, out)
+    return Math.max(6, out)
+  }
 
   const currentLayout = () => ({ refW: ref.refW, refH: ref.refH, clip, slots })
 
@@ -321,6 +353,19 @@ export default function CardDesigner({
     const slot = newSlot(type, slots.length)
     setSlots((list) => [...list, slot])
     setSelectedId(slot.id)
+  }
+
+  // Partir d'un modèle : remplace le dessin en cours par celui du modèle, mis
+  // à l'échelle de la cellule réelle de la zone. C'est un point de départ —
+  // tout reste déplaçable ensuite.
+  const applyPreset = (key) => {
+    const next = presetCardLayout(key, zone)
+    if (!next) return
+    if (slots.length > 0 && !window.confirm('Remplacer le dessin actuel par ce modèle ?')) return
+    setSlots(next.slots.map((sl) => ({ ...sl })))
+    setRef({ refW: next.refW, refH: next.refH })
+    setSelectedId(next.slots[0]?.id || null)
+    setNotice('Modèle appliqué — déplace les éléments pour l’ajuster.')
   }
 
   const pickFile = () => fileRef.current?.click()
@@ -441,6 +486,23 @@ export default function CardDesigner({
         <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden p-4 lg:h-[70vh] lg:flex-row">
           {/* Maquette */}
           <div className="flex min-h-0 flex-1 flex-col gap-3">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
+                Partir d’un modèle :
+              </span>
+              {CARD_PRESETS.map((preset) => (
+                <button
+                  key={preset.key}
+                  type="button"
+                  onClick={() => applyPreset(preset.key)}
+                  title={preset.description}
+                  className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-600 transition-colors hover:border-brand-300 hover:bg-brand-50 hover:text-brand-600 dark:border-gray-800 dark:text-gray-300 dark:hover:border-brand-500/40 dark:hover:bg-brand-500/10"
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
+
             <div className="flex flex-wrap gap-1.5">
               {ADD_BUTTONS.map((type) => {
                 const existing = SINGLETON_SLOTS.includes(type)
@@ -716,6 +778,29 @@ export default function CardDesigner({
                     {numberField(`Taille police (px sur ${ref.refW}px)`, 'fontSize', { min: 4, max: 200 })}
                     <label className="block">
                       <span className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">
+                        La taille suit
+                      </span>
+                      <select
+                        value={selected.fontUnit || 'cqw'}
+                        onChange={(e) => patchSlot(selected.id, { fontUnit: e.target.value })}
+                        className="w-full rounded-lg border border-gray-300 bg-transparent px-2 py-1.5 text-sm text-gray-800 outline-none dark:border-gray-700 dark:text-white/90"
+                      >
+                        <option value="cqw">La largeur de la carte</option>
+                        <option value="cqmin">Le plus petit côté</option>
+                        <option value="px">Rien — taille fixe</option>
+                      </select>
+                      <span className="mt-1 block text-[11px] text-gray-400 dark:text-gray-500">
+                        « Le plus petit côté » garde le texte lisible quand la carte s’aplatit.
+                      </span>
+                    </label>
+                    {selected.fontUnit !== 'px' ? (
+                      <div className="grid grid-cols-2 gap-2">
+                        {numberField('Jamais sous (px)', 'fontMin', { min: 4, max: 200 })}
+                        {numberField('Jamais au-dessus (px)', 'fontMax', { min: 4, max: 200 })}
+                      </div>
+                    ) : null}
+                    <label className="block">
+                      <span className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">
                         Police
                       </span>
                       <select
@@ -836,6 +921,8 @@ export default function CardDesigner({
                   {numberField('Rotation (°)', 'rotation', { min: -180, max: 180 })}
                   {numberField('Ordre (z)', 'zIndex', { min: 0, max: 99 })}
                 </div>
+
+                {isText ? numberField('Lignes max (vide = illimité)', 'lineClamp', { min: 1, max: 10 }) : null}
 
                 {isText ? (
                   <div className="space-y-2">

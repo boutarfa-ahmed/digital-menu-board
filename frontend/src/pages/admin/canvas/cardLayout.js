@@ -22,8 +22,10 @@ import {
 export {
   SINGLETON_SLOTS,
   TEXT_SLOTS,
+  CARD_PRESETS,
   cardCellSize,
   defaultCardLayout,
+  presetCardLayout,
   newSlot,
   hasOwnCardLayout,
   pruneCardLayouts,
