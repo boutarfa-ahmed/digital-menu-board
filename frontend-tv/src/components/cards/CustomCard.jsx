@@ -2,10 +2,11 @@ import { cardFields, accentOf } from './cardUtils.js'
 import ImageFallback from './ImageFallback.jsx'
 import PriceBadge from '../primitives/PriceBadge.jsx'
 import { badgeStyleOf, badgeTypeOf, currencyOf } from '../../theme/designTokens'
+import { DEFAULT_CARD_SLOTS, CARD_REF_W_FALLBACK } from '../../shared/menuSchema'
 
-// T10 — carte « personnalisée » : la disposition vient du JSON dessiné dans
-// l'admin (zone.backgroundStyle.cardLayout, ou cardLayouts[itemId] pour un
-// produit qui a son propre dessin), pas du code.
+// Carte « personnalisée » : la disposition vient du JSON dessiné dans l'admin
+// (zone.backgroundStyle.cardLayout, ou cardLayouts[itemId] pour un produit qui
+// a son propre dessin), pas du code.
 //
 // x/y/w/h sont des % de la carte -> la carte suit la taille de sa cellule.
 // Les tailles de police sont en px dans le repère `refW` (la largeur de la
@@ -13,13 +14,8 @@ import { badgeStyleOf, badgeTypeOf, currencyOf } from '../../theme/designTokens'
 // une carte de 400px = 6% de la largeur de la carte, donc le texte grandit
 // avec la cellule au lieu de rester figé.
 //
-// Garder en phase avec frontend/src/pages/admin/canvas/cardLayout.js.
-const DEFAULT_SLOTS = [
-  { id: 'image', type: 'image', x: 8, y: 4, w: 84, h: 56, fit: 'contain', zIndex: 1 },
-  { id: 'name', type: 'name', x: 4, y: 62, w: 92, h: 20, fontSize: 30, align: 'center', valign: 'center', uppercase: true, bold: true, zIndex: 2 },
-  { id: 'desc', type: 'desc', x: 4, y: 82, w: 92, h: 16, fontSize: 18, align: 'center', valign: 'start', zIndex: 2 },
-  { id: 'price', type: 'price', x: 62, y: 0, w: 38, h: 22, align: 'right', valign: 'start', zIndex: 3 },
-]
+// Les slots par défaut et le repère de repli viennent du schéma partagé
+// (shared/menu-schema.js) : le builder dessine avec exactement ce modèle.
 
 const JUSTIFY = { left: 'flex-start', center: 'center', right: 'flex-end' }
 const ALIGN = { start: 'flex-start', center: 'center', end: 'flex-end' }
@@ -35,8 +31,8 @@ export default function CustomCard({
 }) {
   const { name, description, price, imageUrl } = cardFields(item)
   const accent = accentOf(theme)
-  const slots = Array.isArray(layout?.slots) && layout.slots.length > 0 ? layout.slots : DEFAULT_SLOTS
-  const refW = layout?.refW > 0 ? layout.refW : 400
+  const slots = Array.isArray(layout?.slots) && layout.slots.length > 0 ? layout.slots : DEFAULT_CARD_SLOTS
+  const refW = layout?.refW > 0 ? layout.refW : CARD_REF_W_FALLBACK
 
   // px du repère de dessin -> unité relative à la largeur de la carte
   const fs = (px) => `${(((px || 16) / refW) * 100).toFixed(3)}cqw`
