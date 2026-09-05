@@ -16,7 +16,7 @@ import { badgeStyleOf, currencyOf, badgeTypeOf } from '../../theme/designTokens'
 // Dessin de carte appliqué à un produit : sa propre surcharge
 // (backgroundStyle.cardLayouts[itemId]) sinon celui de la zone
 // (backgroundStyle.cardLayout). Mêmes règles que le builder — schéma partagé.
-import { ownCardLayout, resolveCardLayout, isFreeZone, freeItemBox } from '../../shared/menuSchema'
+import { ownCardLayout, resolveCardLayout, isFreeZone, freeItemBox, resolveZoneLayout } from '../../shared/menuSchema'
 
 function bannerSizeOf(fontSize) {
   if (!fontSize) return undefined
@@ -405,6 +405,174 @@ function BannerContent({ zone, theme, settings, accent, fontSize, badgeType, zon
   )
 }
 
+// Le contenu produits d'une zone, sans rien autour : c'est ce que le slot
+// `products` d'une disposition de zone met dans sa boîte, et c'est aussi ce
+// que la disposition d'origine met sous le titre. Un seul endroit décide quel
+// répéteur s'applique.
+function ZoneProducts({ zone, theme, settings, scale, badgeType, priceVariant, zoneShowPrice, kind }) {
+  if (kind === 'free')
+    return <FreeContent zone={zone} theme={theme} scale={scale} badgeType={badgeType} priceVariant={priceVariant} showPrice={zoneShowPrice} />
+  if (kind === 'grid')
+    return <GridContent zone={zone} theme={theme} scale={scale} badgeType={badgeType} priceVariant={priceVariant} showPrice={zoneShowPrice} />
+  if (kind === 'list')
+    return <ListContent zone={zone} theme={theme} settings={settings} scale={scale} badgeType={badgeType} priceVariant={priceVariant} zoneShowPrice={zoneShowPrice} />
+  // highlight / type inconnu : le premier produit en carte image + détails
+  return zone.items?.[0] ? (
+    <ImageTitleDescPriceCard
+      item={zone.items[0].item}
+      theme={theme}
+      showPrice={zoneShowPrice === true}
+      template={zone.cardTemplate}
+      badgeType={badgeType}
+      variant={priceVariant}
+    />
+  ) : null
+}
+
+// La zone comme conteneur de slots : mêmes règles que la carte (x/y/w/h en %
+// de la zone), un cran plus haut. Le slot `products` porte le répéteur, les
+// autres sont le titre et le décor. Utilisé seulement quand la zone porte une
+// disposition ; sinon on garde l'agencement d'origine plus bas.
+function ZoneSlotsContent({ layout, zone, theme, settings, accent, scale, badgeType, priceVariant, zoneShowPrice, zStyle }) {
+  return (
+    <div className="relative h-full w-full">
+      {layout.slots.map((slot) => {
+        if (slot.visible === false) return null
+        const box = {
+          position: 'absolute',
+          left: `${slot.x}%`,
+          top: `${slot.y}%`,
+          width: `${slot.w}%`,
+          height: `${slot.h}%`,
+          zIndex: slot.zIndex ?? 1,
+          transform: slot.rotation ? `rotate(${slot.rotation}deg)` : undefined,
+        }
+
+        if (slot.type === 'products') {
+          return (
+            <div key={slot.id} style={box} className="flex flex-col">
+              <ZoneProducts
+                zone={zone}
+                theme={theme}
+                settings={settings}
+                scale={scale}
+                badgeType={badgeType}
+                priceVariant={priceVariant}
+                zoneShowPrice={zoneShowPrice}
+                kind={productKind(zone)}
+              />
+            </div>
+          )
+        }
+
+        if (slot.type === 'title') {
+          if (!zone.name) return null
+          const style = slot.titleStyle || 'divider'
+          if (style === 'plain') {
+            return (
+              <div
+                key={slot.id}
+                style={box}
+                className={`flex ${slot.valign === 'start' ? 'items-start' : slot.valign === 'end' ? 'items-end' : 'items-center'} ${
+                  slot.align === 'right' ? 'justify-end' : slot.align === 'center' ? 'justify-center' : 'justify-start'
+                }`}
+              >
+                <h2
+                  className="leading-tight font-menu-header tracking-wide"
+                  style={{
+                    color: slot.color || accent,
+                    fontSize: slot.fontSize || 34,
+                    fontWeight: slot.bold ? 700 : 400,
+                    fontStyle: slot.italic ? 'italic' : undefined,
+                    textTransform: slot.uppercase ? 'uppercase' : undefined,
+                    fontFamily: slot.fontFamily || undefined,
+                    textAlign: slot.align || 'left',
+                  }}
+                >
+                  {zone.name}
+                </h2>
+              </div>
+            )
+          }
+          // divider / banner : le traitement historique, réutilisé tel quel.
+          return (
+            <div key={slot.id} style={box} className="flex flex-col justify-center">
+              <ZoneTitle
+                name={zone.name}
+                accent={accent}
+                extraPrice={zStyle.extraPrice}
+                badgeType={zStyle.badgeType}
+                theme={theme}
+                banner={style === 'banner'}
+                fontSize={zStyle.fontSize}
+              />
+            </div>
+          )
+        }
+
+        if (slot.type === 'shape') {
+          return (
+            <div key={slot.id} style={box}>
+              <div
+                className="h-full w-full"
+                style={{
+                  background: slot.bg || accent,
+                  borderRadius: slot.radius || 0,
+                  opacity: slot.opacity ?? 1,
+                }}
+              />
+            </div>
+          )
+        }
+
+        if (slot.type === 'asset') {
+          if (!slot.imageUrl) return null
+          return (
+            <div key={slot.id} style={box}>
+              <img src={slot.imageUrl} alt="" className="h-full w-full" style={{ objectFit: slot.fit || 'contain' }} />
+            </div>
+          )
+        }
+
+        // 'text'
+        if (!slot.text) return null
+        return (
+          <div
+            key={slot.id}
+            style={box}
+            className={`flex ${slot.valign === 'start' ? 'items-start' : slot.valign === 'end' ? 'items-end' : 'items-center'} ${
+              slot.align === 'right' ? 'justify-end' : slot.align === 'center' ? 'justify-center' : 'justify-start'
+            }`}
+          >
+            <span
+              className="break-words leading-tight"
+              style={{
+                color: slot.color || 'var(--menu-text)',
+                fontSize: slot.fontSize || 24,
+                fontWeight: slot.bold ? 700 : 400,
+                fontStyle: slot.italic ? 'italic' : undefined,
+                textTransform: slot.uppercase ? 'uppercase' : undefined,
+                fontFamily: slot.fontFamily || undefined,
+                textAlign: slot.align || 'left',
+              }}
+            >
+              {slot.text}
+            </span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// Quel répéteur s'applique à cette zone — la même règle que le rendu d'origine.
+function productKind(zone) {
+  if (isFreeZone(zone)) return 'free'
+  if (zone.zoneType === 'grid') return 'grid'
+  if (zone.zoneType === 'list' || zone.zoneType === 'carousel' || zone.zoneType === 'menu') return 'list'
+  return 'highlight'
+}
+
 // Base zone padding, and the deeper inset used on whichever edge(s) carry a
 // torn-paper seam — ZoneSeams draws that band 20px deep into this zone (its
 // 40px band is centered ON the shared edge), so content needs to clear that
@@ -473,8 +641,27 @@ export default function ZoneRenderer({ zone, theme, settings, seamEdges }) {
       }
     : undefined
 
+  // Disposition en slots : elle remplace l'agencement figé ci-dessous. Une zone
+  // qui n'en porte pas garde exactement son rendu d'origine.
+  const zoneLayout = isBanner ? null : resolveZoneLayout(zone)
+
   let content
-  if (isBanner) {
+  if (zoneLayout) {
+    content = (
+      <ZoneSlotsContent
+        layout={zoneLayout}
+        zone={zone}
+        theme={theme}
+        settings={settings}
+        accent={accent}
+        scale={cardScale}
+        badgeType={zStyle.badgeType}
+        priceVariant={priceVariant}
+        zoneShowPrice={zoneShowPrice}
+        zStyle={zStyle}
+      />
+    )
+  } else if (isBanner) {
     content = <BannerContent zone={zone} theme={theme} settings={settings} accent={accent} fontSize={zStyle.fontSize} badgeType={zStyle.badgeType} zoneShowPrice={zoneShowPrice} />
   } else if (isFree) {
     content = (

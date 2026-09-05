@@ -22,6 +22,9 @@ import {
   defaultFreeItemBox,
   ZONE_LAYOUT_MODES,
   ZONE_LAYOUT_MODE_LABELS,
+  ZONE_PRESETS,
+  presetZoneLayout,
+  resolveZoneLayout,
 } from '../../shared/menuSchema'
 import ElementVisual from './canvas/ElementVisual'
 import {
@@ -1744,6 +1747,40 @@ function ScreenLayoutCanvas() {
                       <Badge color={ZONE_TYPE_COLORS[selected.zoneType] || 'light'}>
                         {ZONE_TYPE_LABELS[selected.zoneType] || selected.zoneType}
                       </Badge>
+                    </div>
+
+                    <div>
+                      <Label htmlFor="zone-cfg-zonepreset">Disposition de la zone</Label>
+                      <select
+                        id="zone-cfg-zonepreset"
+                        value={selected.backgroundStyle?.zoneLayout?.preset || ''}
+                        onChange={(e) => {
+                          const key = e.target.value
+                          if (!key) {
+                            // Retour à l'agencement d'origine : on retire la
+                            // disposition au lieu d'en enregistrer une copie.
+                            const { zoneLayout: _drop, ...rest } = styleCfg
+                            patchZone(selected.id, { backgroundStyle: rest })
+                            return
+                          }
+                          const next = presetZoneLayout(key)
+                          if (next) patchStyle({ zoneLayout: { ...next, preset: key } })
+                        }}
+                        className="w-full rounded-lg border border-gray-300 bg-transparent px-3 py-2.5 text-sm text-gray-800 outline-none focus:border-brand-300 focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:text-white/90"
+                      >
+                        <option value="">Origine — titre en haut, produits dessous</option>
+                        {ZONE_PRESETS.map((zp) => (
+                          <option key={zp.key} value={zp.key}>
+                            {zp.label}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                        {resolveZoneLayout(selected)
+                          ? ZONE_PRESETS.find((zp) => zp.key === selected.backgroundStyle?.zoneLayout?.preset)?.description ||
+                            'Disposition personnalisée.'
+                          : 'Le titre et les produits gardent l’agencement d’origine.'}
+                      </p>
                     </div>
 
                     <div>

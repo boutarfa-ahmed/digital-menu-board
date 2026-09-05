@@ -147,6 +147,39 @@ const CARD_FITS = ['contain', 'cover']
 //   px    — taille fixe, ne suit pas la carte (à réserver aux cas précis)
 const FONT_UNITS = ['cqw', 'cqmin', 'px']
 
+// ---------------------------------------------------------------------------
+// SLOTS DE ZONE
+// ---------------------------------------------------------------------------
+//
+// Une zone est un conteneur de slots, exactement comme une carte : mêmes règles
+// de position (x/y/w/h en % de la zone), même moteur de rendu, un cran plus
+// haut. Le slot `products` est le répéteur — c'est lui qui contient la grille,
+// la liste ou le placement libre.
+//
+// Sans zoneLayout, la zone garde sa disposition d'origine (titre en haut,
+// produits dessous) : aucune zone déjà enregistrée ne bouge.
+const ZONE_SLOT_TYPES = ['title', 'products', 'text', 'shape', 'asset']
+const ZONE_SLOT_LABELS = {
+  title: 'Titre de la zone',
+  products: 'Les produits',
+  text: 'Texte libre',
+  shape: 'Forme / trait',
+  asset: 'Image libre',
+}
+
+// Un seul exemplaire par zone : le titre et le répéteur de produits.
+const ZONE_SINGLETON_SLOTS = ['title', 'products']
+
+// Traitement visuel du titre. `divider` est le rendu historique — Playfair
+// italique entre deux filets ; `banner` la pastille catégorie ; `plain` un
+// titre nu qu'on style librement.
+const ZONE_TITLE_STYLES = ['divider', 'banner', 'plain']
+const ZONE_TITLE_STYLE_LABELS = {
+  divider: 'Filets de part et d’autre',
+  banner: 'Bandeau catégorie',
+  plain: 'Titre simple',
+}
+
 // Badge de zone (T7.3) : JSON posé sur la zone, pas de table dédiée.
 const BADGE_STYLES = ['torn-paper', 'ribbon', 'circle-stamp']
 const BADGE_STYLE_LABELS = {
@@ -692,6 +725,90 @@ function elementVisualStyle(el) {
 
 
 // ---------------------------------------------------------------------------
+// DISPOSITION DE LA ZONE
+// ---------------------------------------------------------------------------
+
+// La disposition d'origine, écrite en slots : le titre occupe une bande en
+// haut, les produits remplissent le reste. Une zone sans nom n'a pas de bande
+// de titre — comme aujourd'hui. C'est le point de départ de l'éditeur, et le
+// repère qui montre qu'aucune mise en page n'a été perdue en passant aux slots.
+function defaultZoneLayout(zone) {
+  const hasTitle = !!zone?.name
+  const slots = []
+  if (hasTitle) {
+    slots.push({
+      id: 'title',
+      type: 'title',
+      x: 0, y: 0, w: 100, h: 16,
+      titleStyle: zone?.backgroundStyle?.banner ? 'banner' : 'divider',
+      align: 'center', valign: 'center', zIndex: 2,
+    })
+  }
+  slots.push({
+    id: 'products',
+    type: 'products',
+    x: 0, y: hasTitle ? 18 : 0, w: 100, h: hasTitle ? 82 : 100,
+    zIndex: 1,
+  })
+  return { slots }
+}
+
+// Dispositions prêtes à l'emploi. Comme pour les cartes : ajouter une entrée
+// ici suffit, il n'y a pas de composant à écrire.
+const ZONE_PRESETS = [
+  {
+    key: 'title-top',
+    label: 'Titre en haut',
+    description: 'La disposition d’origine — titre en bande, produits dessous.',
+    slots: [
+      { id: 'title', type: 'title', x: 0, y: 0, w: 100, h: 16, titleStyle: 'divider', align: 'center', valign: 'center', zIndex: 2 },
+      { id: 'products', type: 'products', x: 0, y: 18, w: 100, h: 82, zIndex: 1 },
+    ],
+  },
+  {
+    key: 'title-left',
+    label: 'Titre à gauche',
+    description: 'Titre sur le flanc gauche, les produits occupent la droite.',
+    slots: [
+      { id: 'title', type: 'title', x: 1, y: 0, w: 24, h: 100, titleStyle: 'plain', align: 'left', valign: 'center', fontSize: 40, bold: true, uppercase: true, color: 'var(--menu-accent)', zIndex: 2 },
+      { id: 'products', type: 'products', x: 27, y: 0, w: 73, h: 100, zIndex: 1 },
+    ],
+  },
+  {
+    key: 'title-overlay',
+    label: 'Titre par-dessus',
+    description: 'Les produits prennent toute la zone, le titre se pose dessus.',
+    slots: [
+      { id: 'products', type: 'products', x: 0, y: 0, w: 100, h: 100, zIndex: 1 },
+      { id: 'veil', type: 'shape', x: 0, y: 0, w: 100, h: 18, bg: '#000000', opacity: 0.45, zIndex: 2 },
+      { id: 'title', type: 'title', x: 2, y: 1, w: 96, h: 16, titleStyle: 'plain', align: 'left', valign: 'center', fontSize: 38, bold: true, uppercase: true, color: '#FFFFFF', zIndex: 3 },
+    ],
+  },
+  {
+    key: 'no-title',
+    label: 'Sans titre',
+    description: 'Rien que les produits, plein cadre.',
+    slots: [{ id: 'products', type: 'products', x: 0, y: 0, w: 100, h: 100, zIndex: 1 }],
+  },
+]
+
+const ZONE_PRESET_KEYS = ZONE_PRESETS.map((p) => p.key)
+
+function presetZoneLayout(key) {
+  const preset = ZONE_PRESETS.find((p) => p.key === key)
+  return preset ? { slots: preset.slots.map((sl) => ({ ...sl })) } : null
+}
+
+// La disposition qui s'applique à cette zone : la sienne si elle en a une,
+// sinon `null` — l'appelant décide du repli (la TV garde son rendu d'origine,
+// l'éditeur ouvre defaultZoneLayout).
+function resolveZoneLayout(zone) {
+  const zl = zone?.backgroundStyle?.zoneLayout
+  return zl && Array.isArray(zl.slots) && zl.slots.length > 0 ? zl : null
+}
+
+
+// ---------------------------------------------------------------------------
 // PLACEMENT LIBRE
 // ---------------------------------------------------------------------------
 
@@ -863,6 +980,9 @@ function validateBackgroundStyle(style) {
   }
   if (style.cardLayouts !== undefined) {
     errors.push(...validateCardLayouts(style.cardLayouts, 'backgroundStyle.cardLayouts'))
+  }
+  if (style.zoneLayout !== undefined) {
+    errors.push(...validateZoneLayout(style.zoneLayout, 'backgroundStyle.zoneLayout'))
   }
   // « Afficher le prix » par zone. undefined = comportement par défaut du
   // gabarit de carte, true/false = choix explicite de l'admin.
@@ -1145,6 +1265,103 @@ function validateElementsConfig(elements) {
   return errors
 }
 
+// Disposition d'une zone : la même géométrie que les slots de carte, avec son
+// propre vocabulaire (titre, répéteur de produits, décor).
+function validateZoneLayout(layout, path) {
+  if (layout === undefined || layout === null) return []
+  if (typeof layout !== 'object' || Array.isArray(layout)) return [`${path} must be an object`]
+  const errors = []
+  if (!Array.isArray(layout.slots)) {
+    errors.push(`${path}.slots must be an array`)
+    return errors
+  }
+  if (layout.slots.length > CARD_SLOTS_MAX) {
+    errors.push(`${path}.slots is limited to ${CARD_SLOTS_MAX} entries`)
+  }
+  const seenIds = new Set()
+  const seenSingletons = new Set()
+  layout.slots.forEach((slot, i) => {
+    const p = `${path}.slots[${i}]`
+    if (!slot || typeof slot !== 'object' || Array.isArray(slot)) {
+      errors.push(`${p} must be an object`)
+      return
+    }
+    if (typeof slot.id !== 'string' || slot.id.trim() === '') {
+      errors.push(`${p}.id must be a non-empty string`)
+    } else if (seenIds.has(slot.id)) {
+      errors.push(`${path}.slots contains duplicate id "${slot.id}"`)
+    } else {
+      seenIds.add(slot.id)
+    }
+    if (!ZONE_SLOT_TYPES.includes(slot.type)) {
+      errors.push(`${p}.type must be one of ${ZONE_SLOT_TYPES.join(', ')}`)
+    } else if (ZONE_SINGLETON_SLOTS.includes(slot.type)) {
+      if (seenSingletons.has(slot.type)) {
+        errors.push(`${path}.slots can only hold one "${slot.type}" slot`)
+      }
+      seenSingletons.add(slot.type)
+    }
+    for (const f of ['x', 'y']) {
+      if (!isNum(slot[f]) || slot[f] < -50 || slot[f] > 150) {
+        errors.push(`${p}.${f} must be a number between -50 and 150`)
+      }
+    }
+    for (const f of ['w', 'h']) {
+      if (!isNum(slot[f]) || slot[f] < 1 || slot[f] > 200) {
+        errors.push(`${p}.${f} must be a number between 1 and 200`)
+      }
+    }
+    if (slot.titleStyle !== undefined && !ZONE_TITLE_STYLES.includes(slot.titleStyle)) {
+      errors.push(`${p}.titleStyle must be one of ${ZONE_TITLE_STYLES.join(', ')}`)
+    }
+    if (slot.fontSize !== undefined && (!isNum(slot.fontSize) || slot.fontSize < 4 || slot.fontSize > FONT_SIZE_MAX_TEXT)) {
+      errors.push(`${p}.fontSize must be a number between 4 and ${FONT_SIZE_MAX_TEXT}`)
+    }
+    if (slot.zIndex !== undefined && !Number.isInteger(slot.zIndex)) {
+      errors.push(`${p}.zIndex must be an integer`)
+    }
+    if (slot.opacity !== undefined && (!isNum(slot.opacity) || slot.opacity < 0 || slot.opacity > 1)) {
+      errors.push(`${p}.opacity must be a number between 0 and 1`)
+    }
+    for (const f of ['color', 'bg']) {
+      if (slot[f] !== undefined && slot[f] !== null && !isColor(slot[f])) {
+        errors.push(`${p}.${f} must be a valid color`)
+      }
+    }
+    if (slot.align !== undefined && !CARD_ALIGNS.includes(slot.align)) {
+      errors.push(`${p}.align must be one of ${CARD_ALIGNS.join(', ')}`)
+    }
+    if (slot.valign !== undefined && !CARD_VALIGNS.includes(slot.valign)) {
+      errors.push(`${p}.valign must be one of ${CARD_VALIGNS.join(', ')}`)
+    }
+    for (const f of ['uppercase', 'bold', 'italic', 'visible']) {
+      if (slot[f] !== undefined && typeof slot[f] !== 'boolean') {
+        errors.push(`${p}.${f} must be a boolean`)
+      }
+    }
+    if (slot.type === 'text' && (typeof slot.text !== 'string' || slot.text.trim() === '')) {
+      errors.push(`${p}.text is required for a "text" slot`)
+    }
+    if (slot.imageUrl !== undefined && slot.imageUrl !== null) {
+      if (typeof slot.imageUrl !== 'string' || slot.imageUrl.trim() === '') {
+        errors.push(`${p}.imageUrl must be a non-empty string or null`)
+      } else if (slot.imageUrl.length > IMAGE_URL_MAX) {
+        errors.push(`${p}.imageUrl is too long`)
+      }
+    }
+    if (slot.fit !== undefined && !CARD_FITS.includes(slot.fit)) {
+      errors.push(`${p}.fit must be "contain" or "cover"`)
+    }
+  })
+  // Une disposition qui ne pose pas les produits cacherait tout le contenu de
+  // la zone sans le dire : on la refuse plutôt que de laisser publier un écran
+  // vide.
+  if (layout.slots.length > 0 && !seenSingletons.has('products')) {
+    errors.push(`${path}.slots must include a "products" slot`)
+  }
+  return errors
+}
+
 // Boîtes des produits d'une zone en placement libre. En mode « auto » les
 // champs sont ignorés : une zone qui repasse en grille garde ses boîtes en
 // base sans qu'elles aient à être valides.
@@ -1250,6 +1467,11 @@ module.exports = {
   CARD_SHAPES,
   CARD_FITS,
   FONT_UNITS,
+  ZONE_SLOT_TYPES,
+  ZONE_SLOT_LABELS,
+  ZONE_SINGLETON_SLOTS,
+  ZONE_TITLE_STYLES,
+  ZONE_TITLE_STYLE_LABELS,
   BADGE_STYLES,
   BADGE_STYLE_LABELS,
   BADGE_POSITIONS,
@@ -1304,6 +1526,11 @@ module.exports = {
   sanitizeBackgroundStyle,
   cssUrl,
   elementVisualStyle,
+  defaultZoneLayout,
+  ZONE_PRESETS,
+  ZONE_PRESET_KEYS,
+  presetZoneLayout,
+  resolveZoneLayout,
   isFreeZone,
   defaultFreeItemBox,
   freeItemBox,
@@ -1314,6 +1541,7 @@ module.exports = {
   validateCardLayout,
   validateCardLayouts,
   validateElementsConfig,
+  validateZoneLayout,
   validateZoneItems,
   validateZoneFields,
 };
