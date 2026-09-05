@@ -27,6 +27,16 @@ import {
   resolveZoneLayout,
   ZONE_STYLE_LIMITS,
   zoneStyleValue,
+  fontOptionsWith,
+  decorationStyle,
+  ZONE_DECORATION_EDGES,
+  ZONE_DECORATION_EDGE_LABELS,
+  ZONE_DECORATION_REPEATS,
+  ZONE_DECORATION_REPEAT_LABELS,
+  ZONE_DECORATIONS_MAX,
+  DECORATION_SIZE_MIN,
+  DECORATION_SIZE_MAX,
+  DECORATION_SIZE_FALLBACK,
 } from '../../shared/menuSchema'
 import ElementVisual from './canvas/ElementVisual'
 import {
@@ -54,7 +64,6 @@ import {
   CARD_TEMPLATE_LABELS,
   ELEMENT_KINDS,
   ELEMENT_KIND_LABELS,
-  FONT_OPTIONS,
   BADGE_STYLES,
   BADGE_STYLE_LABELS,
   BADGE_POSITIONS,
@@ -141,6 +150,8 @@ function ScreenLayoutCanvas() {
   const [libraryCatId, setLibraryCatId] = useState(null)
   const [bgLibraryOpen, setBgLibraryOpen] = useState(false)
   const [bgLibraryCatId, setBgLibraryCatId] = useState(null)
+  const [decoPickerOpen, setDecoPickerOpen] = useState(false)
+  const [decoPickerCatId, setDecoPickerCatId] = useState(null)
   const [panelOpen, setPanelOpen] = useState(true)
   const [panelTab, setPanelTab] = useState('produits')
   const [catFilter, setCatFilter] = useState('all')
@@ -1022,6 +1033,32 @@ function ScreenLayoutCanvas() {
 
   // T7.4 — zone style overrides stored in backgroundStyle JSON
   const styleCfg = selected?.backgroundStyle || {}
+  // Une décoration de la liste. `id` est stable une fois posée : c'est la clé
+  // de rendu et l'identité côté validation.
+  const patchDecoration = (index, patch) =>
+    patchStyle({
+      decorations: (styleCfg.decorations || []).map((d, j) => (j === index ? { ...d, ...patch } : d)),
+    })
+
+  const addDecoration = (asset) => {
+    const list = styleCfg.decorations || []
+    if (list.length >= ZONE_DECORATIONS_MAX) return
+    patchStyle({
+      decorations: [
+        ...list,
+        {
+          id: `deco-${Date.now().toString(36)}${list.length}`,
+          imageUrl: asset.url,
+          edge: 'top',
+          repeat: 'repeat',
+          size: DECORATION_SIZE_FALLBACK,
+        },
+      ],
+    })
+    setDecoPickerOpen(false)
+    setDecoPickerCatId(null)
+  }
+
   const patchStyle = (patch) => {
     patchZone(selected.id, { backgroundStyle: { ...styleCfg, ...patch } })
   }
@@ -2392,6 +2429,162 @@ function ScreenLayoutCanvas() {
                     </div>
 
                     <div>
+                      <Label htmlFor="zone-style-font-family">Police de la zone</Label>
+                      <select
+                        id="zone-style-font-family"
+                        value={styleCfg.fontFamily || ''}
+                        onChange={(e) => patchStyle({ fontFamily: e.target.value || undefined })}
+                        className="w-full rounded-lg border border-gray-300 bg-transparent px-3 py-2.5 text-sm text-gray-800 outline-none focus:border-brand-300 focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:text-white/90"
+                      >
+                        {fontOptionsWith(libraryFonts).map((f) => (
+                          <option key={f.value} value={f.value}>
+                            {f.label}
+                            {f.library ? ' (bibliothèque)' : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Décor : au lieu d'un unique effet codé en dur, n'importe
+                        quelle image de la Bibliothèque posée sur un bord. Une
+                        texture de plus = un téléversement, pas une modification
+                        du code. */}
+                    <div className="space-y-2 rounded-lg border border-gray-200 p-3 dark:border-gray-800">
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs font-medium text-gray-500 dark:text-gray-400">
+                          Décor de la zone
+                        </p>
+                        <button
+                          type="button"
+                          disabled={(styleCfg.decorations || []).length >= ZONE_DECORATIONS_MAX}
+                          onClick={() => setDecoPickerOpen(true)}
+                          className="rounded-lg border border-brand-200 px-2 py-1 text-xs font-medium text-brand-600 transition-colors hover:bg-brand-50 disabled:opacity-40 dark:border-brand-500/40 dark:text-brand-400 dark:hover:bg-brand-500/10"
+                        >
+                          + Ajouter
+                        </button>
+                      </div>
+
+                      {(styleCfg.decorations || []).length === 0 ? (
+                        <p className="text-xs text-gray-400">
+                          Aucun. Une image de la Bibliothèque posée sur un bord : filet, bande, texture…
+                        </p>
+                      ) : (
+                        (styleCfg.decorations || []).map((dec, i) => (
+                          <div key={dec.id} className="space-y-1.5 rounded-md border border-gray-100 p-2 dark:border-gray-800">
+                            <div className="flex items-center gap-2">
+                              <img src={dec.imageUrl} alt="" className="size-8 shrink-0 rounded border border-gray-200 object-cover dark:border-gray-700" />
+                              <select
+                                value={dec.edge}
+                                onChange={(e) => patchDecoration(i, { edge: e.target.value })}
+                                className="min-w-0 flex-1 rounded-lg border border-gray-300 bg-transparent px-2 py-1 text-xs text-gray-800 outline-none dark:border-gray-700 dark:text-white/90"
+                              >
+                                {ZONE_DECORATION_EDGES.map((ed) => (
+                                  <option key={ed} value={ed}>
+                                    {ZONE_DECORATION_EDGE_LABELS[ed]}
+                                  </option>
+                                ))}
+                              </select>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  patchStyle({
+                                    decorations: (styleCfg.decorations || []).filter((_, j) => j !== i),
+                                  })
+                                }
+                                title="Retirer"
+                                className="shrink-0 rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-error-500 dark:hover:bg-gray-800"
+                              >
+                                <TrashBinIcon className="size-3.5" />
+                              </button>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <select
+                                value={dec.repeat || 'repeat'}
+                                onChange={(e) => patchDecoration(i, { repeat: e.target.value })}
+                                className="min-w-0 flex-1 rounded-lg border border-gray-300 bg-transparent px-2 py-1 text-xs text-gray-800 outline-none dark:border-gray-700 dark:text-white/90"
+                              >
+                                {ZONE_DECORATION_REPEATS.map((r) => (
+                                  <option key={r} value={r}>
+                                    {ZONE_DECORATION_REPEAT_LABELS[r]}
+                                  </option>
+                                ))}
+                              </select>
+                              <input
+                                type="range"
+                                min={DECORATION_SIZE_MIN}
+                                max={DECORATION_SIZE_MAX}
+                                value={dec.size ?? DECORATION_SIZE_FALLBACK}
+                                onChange={(e) => patchDecoration(i, { size: Number(e.target.value) })}
+                                className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-gray-200 accent-brand-500 dark:bg-gray-700"
+                              />
+                              <span className="w-10 shrink-0 text-right text-xs text-gray-500 dark:text-gray-400">
+                                {dec.size ?? DECORATION_SIZE_FALLBACK}px
+                              </span>
+                            </div>
+                          </div>
+                        ))
+                      )}
+
+                      {decoPickerOpen && (
+                        <div className="space-y-2 rounded-md border border-gray-200 p-2 dark:border-gray-800">
+                          {libraryCategories.length === 0 ? (
+                            <p className="text-xs text-gray-400">
+                              La Bibliothèque est vide — téléversez-y une texture d’abord.
+                            </p>
+                          ) : decoPickerCatId == null ? (
+                            <div className="space-y-1">
+                              {libraryCategories.map((cat) => (
+                                <button
+                                  key={cat.id}
+                                  type="button"
+                                  onClick={() => setDecoPickerCatId(cat.id)}
+                                  className="flex w-full items-center justify-between rounded-md border border-gray-200 px-2.5 py-1.5 text-left text-xs font-medium text-gray-700 transition-colors hover:border-brand-300 hover:text-brand-600 dark:border-gray-700 dark:text-gray-300"
+                                >
+                                  <span>{cat.name}</span>
+                                  <span className="text-gray-400">{(cat.assets || []).length}</span>
+                                </button>
+                              ))}
+                            </div>
+                          ) : (
+                            (() => {
+                              const cat = libraryCategories.find((c) => c.id === decoPickerCatId)
+                              const assets = cat?.assets || []
+                              return (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => setDecoPickerCatId(null)}
+                                    className="flex items-center gap-1 text-xs font-medium text-brand-600 dark:text-brand-400"
+                                  >
+                                    <ChevronLeftIcon className="size-3.5" />
+                                    {cat?.name}
+                                  </button>
+                                  {assets.length === 0 ? (
+                                    <p className="text-xs text-gray-400">Vide.</p>
+                                  ) : (
+                                    <div className="grid grid-cols-4 gap-1.5">
+                                      {assets.map((asset) => (
+                                        <button
+                                          key={asset.id}
+                                          type="button"
+                                          onClick={() => addDecoration(asset)}
+                                          title={asset.name || ''}
+                                          className="aspect-square overflow-hidden rounded-md border border-gray-200 bg-white transition-colors hover:border-brand-400 dark:border-gray-700 dark:bg-gray-900"
+                                        >
+                                          <img src={asset.url} alt="" className="h-full w-full object-cover" />
+                                        </button>
+                                      ))}
+                                    </div>
+                                  )}
+                                </>
+                              )
+                            })()
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    <div>
                       <Label htmlFor="zone-style-banner">Style du titre</Label>
                       <select
                         id="zone-style-banner"
@@ -2689,7 +2882,7 @@ function ScreenLayoutCanvas() {
                                 }
                                 className="w-full rounded-lg border border-gray-300 bg-transparent px-3 py-2.5 text-sm text-gray-800 outline-none focus:border-brand-300 focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:text-white/90"
                               >
-                                {FONT_OPTIONS.map((f) => (
+                                {fontOptionsWith(libraryFonts).map((f) => (
                                   <option key={f.value} value={f.value}>
                                     {f.label}
                                   </option>
@@ -3255,6 +3448,11 @@ function ScreenLayoutCanvas() {
                         </span>
                       ) : null}
                       <StyledZoneContent zone={zone} accent={zAccent} text={zText} />
+                      {Array.isArray(zStyle.decorations)
+                        ? zStyle.decorations.map((dec) =>
+                            dec?.imageUrl ? <div key={dec.id} style={decorationStyle(dec)} /> : null
+                          )
+                        : null}
                     </div>
                     <ZoneBadgePreview config={zone.badgeConfig} accent={zAccent} />
                   </div>

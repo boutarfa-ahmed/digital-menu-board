@@ -24,6 +24,7 @@ import {
   resolveZoneLayout,
   zoneStyleValue,
   ZONE_PAD_SEAM,
+  decorationStyle,
 } from '../../shared/menuSchema'
 
 function bannerSizeOf(fontSize) {
@@ -770,6 +771,14 @@ export default function ZoneRenderer({ zone, theme, settings, seamEdges }) {
           <div className="absolute inset-0" style={{ background: 'rgba(0,0,0,0.28)' }} />
         </div>
       ) : null}
+      {/* Décor : des images de la Bibliothèque posées sur les bords de la zone.
+          Entre le fond et le contenu — un filet néon ou une bande de bois se
+          voit sous les produits, pas par-dessus. */}
+      {Array.isArray(zStyle.decorations)
+        ? zStyle.decorations.map((dec) =>
+            dec?.imageUrl ? <div key={dec.id} style={decorationStyle(dec)} /> : null
+          )
+        : null}
       <div className="relative z-10 flex h-full w-full flex-col">{content}</div>
       {!isBanner && <ZoneBadge config={zone.badgeConfig} />}
     </div>

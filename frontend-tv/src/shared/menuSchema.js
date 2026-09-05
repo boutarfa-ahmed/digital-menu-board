@@ -244,6 +244,76 @@ export const FONT_OPTIONS = [
   { value: 'Roboto Flex', label: 'Roboto Flex' },
 ]
 
+// Les polices téléversées dans la Bibliothèque (catégorie de type "font")
+// s'ajoutent aux familles embarquées. LibraryFontFaces les déclare en
+// @font-face des deux côtés ; ici on ne fabrique que la liste du sélecteur,
+// pour que tous les sélecteurs de police de l'admin proposent la même chose.
+export function fontOptionsWith(libraryFonts) {
+  const extra = (Array.isArray(libraryFonts) ? libraryFonts : [])
+    .filter((f) => f && typeof f.name === 'string' && f.name.trim() !== '')
+    .map((f) => ({ value: f.name, label: f.name, library: true }))
+  const seen = new Set(FONT_OPTIONS.map((f) => f.value))
+  return [...FONT_OPTIONS, ...extra.filter((f) => !seen.has(f.value) && seen.add(f.value))]
+}
+
+// ---------------------------------------------------------------------------
+// DÉCOR DE ZONE
+// ---------------------------------------------------------------------------
+//
+// Une décoration est une image de la Bibliothèque posée sur un bord de la zone
+// (ou sur toute sa surface). C'est ce qui remplace « un seul effet possible » :
+// papier déchiré, néon, bois, grunge — c'est un téléversement, pas un commit.
+//
+// Le papier déchiré ENTRE zones (ZoneSeams) reste à part : il se dessine sur la
+// couture partagée par deux zones, pas sur le bord d'une seule.
+export const ZONE_DECORATION_EDGES = ['top', 'right', 'bottom', 'left', 'full']
+export const ZONE_DECORATION_EDGE_LABELS = {
+  top: 'Bord haut',
+  right: 'Bord droit',
+  bottom: 'Bord bas',
+  left: 'Bord gauche',
+  full: 'Toute la zone',
+}
+
+export const ZONE_DECORATION_REPEATS = ['repeat', 'stretch']
+export const ZONE_DECORATION_REPEAT_LABELS = {
+  repeat: 'Répéter le motif',
+  stretch: 'Étirer une fois',
+}
+
+export const ZONE_DECORATIONS_MAX = 8
+export const DECORATION_SIZE_MIN = 2
+export const DECORATION_SIZE_MAX = 400
+export const DECORATION_SIZE_FALLBACK = 40
+
+// La boîte et le fond CSS d'une décoration. Un seul endroit les calcule, pour
+// que l'aperçu du builder ne puisse pas montrer autre chose que la TV.
+export function decorationStyle(dec) {
+  const size = typeof dec?.size === 'number' && Number.isFinite(dec.size) ? dec.size : DECORATION_SIZE_FALLBACK
+  const stretch = dec?.repeat === 'stretch'
+  const box = { position: 'absolute', pointerEvents: 'none', opacity: dec?.opacity ?? 1 }
+  const bg = { backgroundImage: dec?.imageUrl ? `url("${dec.imageUrl}")` : undefined }
+
+  if (dec?.edge === 'full') {
+    Object.assign(box, { inset: 0 })
+    bg.backgroundRepeat = stretch ? 'no-repeat' : 'repeat'
+    bg.backgroundSize = stretch ? '100% 100%' : `${size}px auto`
+    return { ...box, ...bg }
+  }
+
+  const horizontal = dec?.edge === 'top' || dec?.edge === 'bottom'
+  if (horizontal) {
+    Object.assign(box, { left: 0, right: 0, height: size, [dec.edge]: 0 })
+    bg.backgroundRepeat = stretch ? 'no-repeat' : 'repeat-x'
+    bg.backgroundSize = stretch ? '100% 100%' : `auto ${size}px`
+  } else {
+    Object.assign(box, { top: 0, bottom: 0, width: size, [dec?.edge === 'right' ? 'right' : 'left']: 0 })
+    bg.backgroundRepeat = stretch ? 'no-repeat' : 'repeat-y'
+    bg.backgroundSize = stretch ? '100% 100%' : `${size}px auto`
+  }
+  return { ...box, ...bg }
+}
+
 // Réglages d'un élément dessiné (image, logo, icône).
 //   fit     — le dessin garde ses proportions dans sa boîte, ou l'étire.
 //   bgShape — la pastille posée derrière le dessin (badge catégorie).
@@ -1047,6 +1117,9 @@ export function validateBackgroundStyle(style) {
   if (style.fontFamily !== undefined && style.fontFamily !== null && typeof style.fontFamily !== 'string') {
     errors.push('backgroundStyle.fontFamily must be a string')
   }
+  if (style.decorations !== undefined) {
+    errors.push(...validateZoneDecorations(style.decorations, 'backgroundStyle.decorations'))
+  }
   // Sous-zone : en % de l'espace restant sous le titre. null l'enlève (la zone
   // remplit alors tout cet espace, comme avant l'existence de ce réglage).
   if (style.contentBox !== undefined && style.contentBox !== null) {
@@ -1068,6 +1141,51 @@ export function validateBackgroundStyle(style) {
       }
     }
   }
+  return errors
+}
+
+// Décor d'une zone : des images de la Bibliothèque posées sur ses bords.
+export function validateZoneDecorations(decorations, path) {
+  if (decorations === undefined || decorations === null) return []
+  if (!Array.isArray(decorations)) return [`${path} must be an array`]
+  const errors = []
+  if (decorations.length > ZONE_DECORATIONS_MAX) {
+    errors.push(`${path} is limited to ${ZONE_DECORATIONS_MAX} entries`)
+  }
+  const seenIds = new Set()
+  decorations.forEach((dec, i) => {
+    const p = `${path}[${i}]`
+    if (!dec || typeof dec !== 'object' || Array.isArray(dec)) {
+      errors.push(`${p} must be an object`)
+      return
+    }
+    if (typeof dec.id !== 'string' || dec.id.trim() === '') {
+      errors.push(`${p}.id must be a non-empty string`)
+    } else if (seenIds.has(dec.id)) {
+      errors.push(`${path} contains duplicate id "${dec.id}"`)
+    } else {
+      seenIds.add(dec.id)
+    }
+    // imageUrl obligatoire : une décoration sans image ne rendrait rien et
+    // resterait dans le JSON sans qu'on comprenne pourquoi.
+    if (typeof dec.imageUrl !== 'string' || dec.imageUrl.trim() === '') {
+      errors.push(`${p}.imageUrl is required`)
+    } else if (dec.imageUrl.length > IMAGE_URL_MAX) {
+      errors.push(`${p}.imageUrl is too long`)
+    }
+    if (!ZONE_DECORATION_EDGES.includes(dec.edge)) {
+      errors.push(`${p}.edge must be one of ${ZONE_DECORATION_EDGES.join(', ')}`)
+    }
+    if (dec.repeat !== undefined && !ZONE_DECORATION_REPEATS.includes(dec.repeat)) {
+      errors.push(`${p}.repeat must be one of ${ZONE_DECORATION_REPEATS.join(', ')}`)
+    }
+    if (dec.size !== undefined && (!isNum(dec.size) || dec.size < DECORATION_SIZE_MIN || dec.size > DECORATION_SIZE_MAX)) {
+      errors.push(`${p}.size must be a number between ${DECORATION_SIZE_MIN} and ${DECORATION_SIZE_MAX}`)
+    }
+    if (dec.opacity !== undefined && (!isNum(dec.opacity) || dec.opacity < 0 || dec.opacity > 1)) {
+      errors.push(`${p}.opacity must be a number between 0 and 1`)
+    }
+  })
   return errors
 }
 
