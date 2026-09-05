@@ -1,0 +1,9 @@
+{
+  "name": "galaxyfood-menu-board",
+  "private": true,
+  "description": "Racine du dépôt : uniquement les outils partagés entre backend, frontend et frontend-tv. Chaque projet garde son propre package.json et se construit indépendamment (voir render.yaml / docker-compose.yml) — ce fichier n'est utilisé par aucun build.",
+  "scripts": {
+    "sync:schema": "node scripts/sync-schema.mjs",
+    "check:schema": "node scripts/sync-schema.mjs --check"
+  }
+}

@@ -13,19 +13,10 @@ import { accentOf, cardFields, templateStyle } from '../cards/cardUtils.js'
 import PriceBadge from '../primitives/PriceBadge.jsx'
 import TierPricingHeader from '../primitives/TierPricingHeader.jsx'
 import { badgeStyleOf, currencyOf, badgeTypeOf } from '../../theme/designTokens'
-
-// T10 — dessin de carte appliqué à un produit : sa propre surcharge
+// Dessin de carte appliqué à un produit : sa propre surcharge
 // (backgroundStyle.cardLayouts[itemId]) sinon celui de la zone
-// (backgroundStyle.cardLayout).
-function ownCardLayout(zone, itemId) {
-  const own = zone?.backgroundStyle?.cardLayouts?.[String(itemId)]
-  return own && Array.isArray(own.slots) ? own : null
-}
-
-function cardLayoutFor(zone, itemId) {
-  const bs = zone?.backgroundStyle || {}
-  return ownCardLayout(zone, itemId) || bs.cardLayout || null
-}
+// (backgroundStyle.cardLayout). Mêmes règles que le builder — schéma partagé.
+import { ownCardLayout, resolveCardLayout } from '../../shared/menuSchema'
 
 function bannerSizeOf(fontSize) {
   if (!fontSize) return undefined
@@ -175,7 +166,7 @@ function GridContent({ zone, theme, scale = 1, badgeType, priceVariant, showPric
       return (
         <CustomCard
           item={zi.item}
-          layout={own || cardLayoutFor(zone, zi.itemId)}
+          layout={own || resolveCardLayout(zone, zi.itemId)}
           badgeConfig={zone.badgeConfig}
           qty={zi.qty != null ? zi.qty : null}
           {...priceProps}
@@ -269,7 +260,7 @@ function ListContent({ zone, theme, settings, scale = 1, badgeType, priceVariant
         <div key={zi.itemId} className="min-h-0 w-full flex-1">
           <CustomCard
             item={zi.item}
-            layout={own || cardLayoutFor(zone, zi.itemId)}
+            layout={own || resolveCardLayout(zone, zi.itemId)}
             theme={theme}
             badgeConfig={zone.badgeConfig}
             qty={zi.qty != null ? zi.qty : null}
