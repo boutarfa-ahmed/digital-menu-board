@@ -31,6 +31,8 @@ import {
   ELEMENT_FIT_LABELS,
   ELEMENT_BG_SHAPES,
   ELEMENT_BG_SHAPE_LABELS,
+  ELEMENT_ALIGN_LABELS,
+  CARD_ALIGNS,
   ICON_DEFAULTS,
   pxToPctW,
   pxToPctH,
@@ -57,6 +59,7 @@ import {
   EL_RESIZE_HANDLES,
 } from './canvas/constants'
 import { TORN_CLIP } from './canvas/tornPaper'
+import { elementTextStyle } from '../../shared/menuSchema'
 import {
   overlaps,
   clamp,
@@ -2532,6 +2535,31 @@ function ScreenLayoutCanvas() {
                             </div>
                           )}
 
+                          {/* Bannière, séparateur et badge prix ont leur propre
+                              mise en page (composant dédié côté TV) : seuls le
+                              texte simple et le titre héro s'alignent. */}
+                          {['plain', 'hero'].includes(selectedElement.kind || 'plain') && (
+                            <div>
+                              <Label>Alignement</Label>
+                              <div className="grid grid-cols-3 gap-1.5">
+                                {CARD_ALIGNS.map((a) => (
+                                  <button
+                                    key={a}
+                                    type="button"
+                                    onClick={() => patchElementById(selectedElement.id, { align: a })}
+                                    className={`rounded-lg border px-2 py-1.5 text-xs font-medium transition-colors ${
+                                      (selectedElement.align || 'center') === a
+                                        ? 'border-brand-500 bg-brand-50 text-brand-600 dark:bg-brand-500/15 dark:text-brand-400'
+                                        : 'border-gray-200 text-gray-500 hover:border-brand-300 dark:border-gray-700 dark:text-gray-400'
+                                    }`}
+                                  >
+                                    {ELEMENT_ALIGN_LABELS[a]}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
                           {['banner', 'price'].includes(selectedElement.kind) && (
                             <div>
                               <Label>Fond</Label>
@@ -3499,8 +3527,12 @@ function ScreenLayoutCanvas() {
                     >
                       {el.type === 'text' ? (
                         <div
-                          className="flex h-full w-full items-center justify-center overflow-hidden text-center"
-                          style={{ color: el.color || '#fff', fontSize: Math.min(el.fontSize || 24, 48) }}
+                          className="flex h-full w-full items-center overflow-hidden"
+                          style={{
+                            ...elementTextStyle(el),
+                            color: el.color || '#fff',
+                            fontSize: Math.min(el.fontSize || 24, 48),
+                          }}
                         >
                           {el.text}
                         </div>
