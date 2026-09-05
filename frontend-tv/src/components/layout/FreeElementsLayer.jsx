@@ -7,7 +7,7 @@
 import CategoryBanner from '../primitives/CategoryBanner.jsx'
 import PriceBadge from '../primitives/PriceBadge.jsx'
 import { badgeTypeOf } from '../../theme/designTokens'
-import { elementVisualStyle } from '../../shared/menuSchema'
+import { elementVisualStyle, elementTextStyle } from '../../shared/menuSchema'
 
 export default function FreeElementsLayer({ elements }) {
   if (!elements || elements.length === 0) return null
@@ -93,12 +93,17 @@ export default function FreeElementsLayer({ elements }) {
           }
 
           if (kind === 'hero') {
+            const textAlign = elementTextStyle(el)
             return (
               <div key={el.id} style={box}>
-                <div className="flex h-full w-full items-center justify-center overflow-hidden">
+                <div
+                  className="flex h-full w-full items-center overflow-hidden"
+                  style={{ justifyContent: textAlign.justifyContent }}
+                >
                   <span
-                    className="font-menu-header font-bold uppercase tracking-wide text-center"
+                    className="font-menu-header font-bold uppercase tracking-wide"
                     style={{
+                      textAlign: textAlign.textAlign,
                       fontSize: cap(el.fontSize) || 64,
                       color: el.color || '#FFFFFF',
                       lineHeight: 1,
@@ -113,13 +118,19 @@ export default function FreeElementsLayer({ elements }) {
             )
           }
 
-          // 'plain' — comportement original inchangé
+          // 'plain' — centré tant qu'aucun alignement n'est enregistré, donc
+          // les textes déjà posés ne bougent pas.
+          const plainAlign = elementTextStyle(el)
           return (
             <div key={el.id} style={box}>
-              <div className="flex h-full w-full items-center justify-center overflow-hidden">
+              <div
+                className="flex h-full w-full items-center overflow-hidden"
+                style={{ justifyContent: plainAlign.justifyContent }}
+              >
                 <span
-                  className="font-menu-header uppercase tracking-wide text-center"
+                  className="font-menu-header uppercase tracking-wide"
                   style={{
+                    textAlign: plainAlign.textAlign,
                     fontSize: cap(el.fontSize) || 24,
                     color: el.color || '#FFFFFF',
                     lineHeight: 1.1,

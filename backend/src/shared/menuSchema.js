@@ -329,6 +329,14 @@ const ELEMENT_BG_SHAPE_LABELS = {
   square: 'Carré',
 }
 
+// Alignement horizontal d'un élément texte. Même vocabulaire que les slots de
+// carte (CARD_ALIGNS) : un seul mot pour la même idée dans tout le modèle.
+const ELEMENT_ALIGN_LABELS = {
+  left: 'Gauche',
+  center: 'Centre',
+  right: 'Droite',
+}
+
 
 // ============================================================================
 // 3. LIMITES
@@ -759,13 +767,14 @@ function sanitizeBackgroundStyle(backgroundStyle) {
 
 
 // ============================================================================
-// 5.5 ÉLÉMENTS DESSINÉS (image / logo / icône)
+// 5.5 ÉLÉMENTS LIBRES (dessinés et texte)
 // ============================================================================
 //
 // Un élément dessiné, c'est un fichier (SVG de préférence pour une icône, PNG
 // détouré sinon) posé librement sur l'écran. L'admin et la TV doivent en
 // donner exactement le même rendu : les styles se calculent donc ici une seule
-// fois, pas dans chacun des deux composants.
+// fois, pas dans chacun des deux composants. Idem pour l'alignement du texte
+// juste en dessous.
 
 // Une URL qui part dans une valeur CSS. Guillemets et antislashs échappés :
 // sans ça une URL tordue pourrait fermer le url(...) et injecter du style.
@@ -827,6 +836,18 @@ function elementVisualStyle(el) {
     maskSize: size,
   }
   return { frame: frame, mask: mask, fit: fit === 'contain' ? 'contain' : 'fill' }
+}
+
+// Alignement horizontal d'un élément texte. Deux propriétés, pas une : la boîte
+// est un conteneur flex, donc `justifyContent` place le bloc de texte dans la
+// boîte, et `textAlign` aligne les lignes entre elles quand le texte passe à la
+// ligne. Sans réglage : centré, comme avant.
+function elementTextStyle(el) {
+  const align = CARD_ALIGNS.includes(el?.align) ? el.align : 'center'
+  return {
+    justifyContent: align === 'left' ? 'flex-start' : align === 'right' ? 'flex-end' : 'center',
+    textAlign: align,
+  }
 }
 
 
@@ -1416,6 +1437,9 @@ function validateElementsConfig(elements) {
     }
     // Réglages des éléments dessinés (image/logo/icône). Tous facultatifs :
     // absents, elementVisualStyle() retombe sur l'ancien rendu.
+    if (el.align !== undefined && !CARD_ALIGNS.includes(el.align)) {
+      errors.push(`${p}.align must be one of ${CARD_ALIGNS.join(', ')}`)
+    }
     if (el.fit !== undefined && !ELEMENT_FITS.includes(el.fit)) {
       errors.push(`${p}.fit must be one of ${ELEMENT_FITS.join(', ')}`)
     }
@@ -1670,6 +1694,7 @@ module.exports = {
   ELEMENT_FIT_LABELS,
   ELEMENT_BG_SHAPES,
   ELEMENT_BG_SHAPE_LABELS,
+  ELEMENT_ALIGN_LABELS,
   CARD_SLOTS_MAX,
   CARD_LAYOUTS_MAX,
   FONT_SIZE_MIN,
@@ -1709,6 +1734,7 @@ module.exports = {
   sanitizeBackgroundStyle,
   cssUrl,
   elementVisualStyle,
+  elementTextStyle,
   defaultZoneLayout,
   ZONE_PRESETS,
   ZONE_PRESET_KEYS,
