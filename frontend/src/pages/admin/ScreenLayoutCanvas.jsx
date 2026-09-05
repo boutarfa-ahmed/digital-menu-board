@@ -25,6 +25,8 @@ import {
   ZONE_PRESETS,
   presetZoneLayout,
   resolveZoneLayout,
+  ZONE_STYLE_LIMITS,
+  zoneStyleValue,
 } from '../../shared/menuSchema'
 import ElementVisual from './canvas/ElementVisual'
 import {
@@ -2298,6 +2300,95 @@ function ScreenLayoutCanvas() {
                           </option>
                         ))}
                       </select>
+                    </div>
+
+                    {/* Mise en forme : chaque curseur remplace une valeur qui
+                        était écrite en dur dans le rendu. Le libellé montre la
+                        valeur effective, donc « par défaut » n'est jamais un
+                        chiffre mystère. */}
+                    <div className="space-y-3 rounded-lg border border-gray-200 p-3 dark:border-gray-800">
+                      <p className="text-xs font-medium text-gray-500 dark:text-gray-400">
+                        Mise en forme de la zone
+                      </p>
+                      {[
+                        ['padding', 'Marge intérieure'],
+                        ['gap', 'Espace entre produits'],
+                        ['titleGap', 'Espace sous le titre'],
+                        ['radius', 'Arrondi des coins'],
+                        ['shadow', 'Ombre portée'],
+                      ].map(([key, label]) => {
+                        const limits = ZONE_STYLE_LIMITS[key]
+                        const value = zoneStyleValue(styleCfg, key)
+                        const custom = typeof styleCfg[key] === 'number'
+                        return (
+                          <div key={key}>
+                            <div className="flex items-center justify-between">
+                              <Label htmlFor={`zone-style-${key}`}>{label}</Label>
+                              <span className="text-xs text-gray-500 dark:text-gray-400">
+                                {value}px{custom ? '' : ' (défaut)'}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <input
+                                id={`zone-style-${key}`}
+                                type="range"
+                                min={limits.min}
+                                max={limits.max}
+                                value={value}
+                                onChange={(e) => patchStyle({ [key]: Number(e.target.value) })}
+                                className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-gray-200 accent-brand-500 dark:bg-gray-700"
+                              />
+                              {custom && (
+                                <button
+                                  type="button"
+                                  onClick={() => patchStyle({ [key]: undefined })}
+                                  title="Revenir à la valeur par défaut"
+                                  className="shrink-0 rounded border border-gray-200 px-1.5 py-0.5 text-[10px] text-gray-500 hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-800"
+                                >
+                                  ↺
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        )
+                      })}
+
+                      <div>
+                        <div className="flex items-center justify-between">
+                          <Label htmlFor="zone-style-border">Filet autour de la zone</Label>
+                          {styleCfg.border && (
+                            <button
+                              type="button"
+                              onClick={() => patchStyle({ border: undefined, borderWidth: undefined })}
+                              className="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+                            >
+                              Aucun
+                            </button>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <input
+                            id="zone-style-border"
+                            type="color"
+                            value={styleCfg.border || STYLE_DEFAULTS.accent}
+                            onChange={(e) => patchStyle({ border: e.target.value })}
+                            className="h-9 w-12 cursor-pointer rounded border border-gray-300 bg-transparent dark:border-gray-700"
+                          />
+                          {styleCfg.border && (
+                            <input
+                              type="range"
+                              min={ZONE_STYLE_LIMITS.borderWidth.min}
+                              max={ZONE_STYLE_LIMITS.borderWidth.max}
+                              value={zoneStyleValue(styleCfg, 'borderWidth')}
+                              onChange={(e) => patchStyle({ borderWidth: Number(e.target.value) })}
+                              className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-gray-200 accent-brand-500 dark:bg-gray-700"
+                            />
+                          )}
+                          <span className="shrink-0 text-xs text-gray-500 dark:text-gray-400">
+                            {styleCfg.border ? `${zoneStyleValue(styleCfg, 'borderWidth')}px` : 'aucun'}
+                          </span>
+                        </div>
+                      </div>
                     </div>
 
                     <div>

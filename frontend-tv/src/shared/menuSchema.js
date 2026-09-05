@@ -281,6 +281,42 @@ export const FREE_ITEM_MIN = 2
 export const FREE_ITEM_MAX = 150
 export const FREE_ITEM_POS_MIN = -25
 export const FREE_ITEM_POS_MAX = 125
+
+// Réglages de mise en forme d'une zone, en px de la maquette 1920x1080. Chacun
+// remplace une valeur qui était écrite en dur dans le rendu TV : tant que la
+// zone n'en fixe aucun, elle rend exactement comme avant.
+//
+//   padding   marge intérieure de la zone            (était ZONE_PAD = 10)
+//   gap       espace entre les produits              (était gap-5 = 20px)
+//   titleGap  espace sous le titre                   (était mb-6 = 24px)
+//   radius    arrondi des coins de la zone           (n'existait pas)
+//   border    filet autour de la zone                (n'existait pas)
+//   shadow    portée de l'ombre portée               (n'existait pas)
+//   textMuted couleur du texte secondaire   (était déduite de `dark`, 2 valeurs)
+export const ZONE_STYLE_LIMITS = {
+  padding: { min: 0, max: 200, fallback: 10 },
+  gap: { min: 0, max: 120, fallback: 20 },
+  titleGap: { min: 0, max: 200, fallback: 24 },
+  radius: { min: 0, max: 200, fallback: 0 },
+  borderWidth: { min: 0, max: 20, fallback: 2 },
+  shadow: { min: 0, max: 80, fallback: 0 },
+}
+
+// Marge intérieure minimale sur un bord qui porte une couture papier déchiré :
+// ZoneSeams dessine sa bande 25px à l'intérieur de la zone, le contenu doit la
+// dégager. Une marge plus grande choisie par l'admin l'emporte.
+export const ZONE_PAD_SEAM = 25
+
+// Valeur effective d'un réglage de zone : celle de la zone, sinon celle qui
+// était codée en dur. Un seul endroit décide, pour que le rendu TV et l'aperçu
+// du builder ne puissent pas répondre différemment.
+export function zoneStyleValue(backgroundStyle, key) {
+  const limits = ZONE_STYLE_LIMITS[key]
+  if (!limits) return undefined
+  const v = backgroundStyle?.[key]
+  if (typeof v !== 'number' || !Number.isFinite(v)) return limits.fallback
+  return Math.min(limits.max, Math.max(limits.min, v))
+}
 // Marge intérieure d'un élément dessiné, en % de sa boîte. Plafonnée bien
 // avant 50% : à 50% le dessin n'a plus aucune place et disparaît.
 export const EL_PADDING_MAX = 45
@@ -994,6 +1030,22 @@ export function validateBackgroundStyle(style) {
     if (!Number.isFinite(n) || n < FONT_SIZE_MIN || n > FONT_SIZE_MAX) {
       errors.push(`backgroundStyle.fontSize must be a number between ${FONT_SIZE_MIN} and ${FONT_SIZE_MAX}px`)
     }
+  }
+  // Mise en forme de la zone : chaque réglage remplace une valeur qui était
+  // codée en dur. Absent = on garde cette valeur.
+  for (const [key, limits] of Object.entries(ZONE_STYLE_LIMITS)) {
+    if (style[key] === undefined || style[key] === null) continue
+    if (!isNum(style[key]) || style[key] < limits.min || style[key] > limits.max) {
+      errors.push(`backgroundStyle.${key} must be a number between ${limits.min} and ${limits.max}`)
+    }
+  }
+  for (const key of ['border', 'textMuted']) {
+    if (style[key] !== undefined && style[key] !== null && !isColor(style[key])) {
+      errors.push(`backgroundStyle.${key} must be a valid color`)
+    }
+  }
+  if (style.fontFamily !== undefined && style.fontFamily !== null && typeof style.fontFamily !== 'string') {
+    errors.push('backgroundStyle.fontFamily must be a string')
   }
   // Sous-zone : en % de l'espace restant sous le titre. null l'enlève (la zone
   // remplit alors tout cet espace, comme avant l'existence de ce réglage).

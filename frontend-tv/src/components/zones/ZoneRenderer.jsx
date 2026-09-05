@@ -16,7 +16,15 @@ import { badgeStyleOf, currencyOf, badgeTypeOf } from '../../theme/designTokens'
 // Dessin de carte appliqué à un produit : sa propre surcharge
 // (backgroundStyle.cardLayouts[itemId]) sinon celui de la zone
 // (backgroundStyle.cardLayout). Mêmes règles que le builder — schéma partagé.
-import { ownCardLayout, resolveCardLayout, isFreeZone, freeItemBox, resolveZoneLayout } from '../../shared/menuSchema'
+import {
+  ownCardLayout,
+  resolveCardLayout,
+  isFreeZone,
+  freeItemBox,
+  resolveZoneLayout,
+  zoneStyleValue,
+  ZONE_PAD_SEAM,
+} from '../../shared/menuSchema'
 
 function bannerSizeOf(fontSize) {
   if (!fontSize) return undefined
@@ -25,16 +33,18 @@ function bannerSizeOf(fontSize) {
   return 'lg'
 }
 
-function ZoneTitle({ name, accent, banner, extraPrice, badgeType, theme, fontSize }) {
+function ZoneTitle({ name, accent, banner, extraPrice, badgeType, theme, fontSize, titleGap }) {
   if (!name) return null
+  // mb-6 (24px) était figé : c'est maintenant le réglage « Espace sous le titre ».
+  const gapStyle = { marginBottom: titleGap }
   const scale = fontSize ? fontSize / 12 : 1
   const showExtra = Number.isFinite(extraPrice) && extraPrice > 0
 
   if (banner) {
     const title = <CategoryBanner label={name} accent={accent} size={bannerSizeOf(fontSize)} />
-    if (!showExtra) return <div className="mb-6">{title}</div>
+    if (!showExtra) return <div style={gapStyle}>{title}</div>
     return (
-      <div className="mb-6 flex items-center gap-3">
+      <div className="flex items-center gap-3" style={gapStyle}>
         {title}
         <PriceBadge price={extraPrice} size="sm" badgeStyle={badgeStyleOf(theme)} currency={currencyOf(theme)} badgeType={badgeTypeOf(badgeType)} />
       </div>
@@ -58,7 +68,7 @@ function ZoneTitle({ name, accent, banner, extraPrice, badgeType, theme, fontSiz
 
   if (showExtra) {
     return (
-      <div className="mb-6 flex items-center gap-3">
+      <div className="flex items-center gap-3" style={gapStyle}>
         {title}
         <PriceBadge price={extraPrice} size="sm" badgeStyle={badgeStyleOf(theme)} currency={currencyOf(theme)} badgeType={badgeTypeOf(badgeType)} />
       </div>
@@ -66,7 +76,7 @@ function ZoneTitle({ name, accent, banner, extraPrice, badgeType, theme, fontSiz
   }
   const ruleHeight = Math.max(2, Math.round(3 * scale))
   return (
-    <div className="mb-6 flex items-center gap-4">
+    <div className="flex items-center gap-4" style={gapStyle}>
       <span className="flex-1 rounded-full" style={{ height: ruleHeight, background: accent, opacity: 0.35 }} />
       {title}
       <span className="flex-1 rounded-full" style={{ height: ruleHeight, background: accent, opacity: 0.35 }} />
@@ -221,7 +231,7 @@ function FreeContent({ zone, theme, scale = 1, badgeType, priceVariant, showPric
   )
 }
 
-function GridContent({ zone, theme, scale = 1, badgeType, priceVariant, showPrice }) {
+function GridContent({ zone, theme, scale = 1, badgeType, priceVariant, showPrice, gap }) {
   const rows = zone.gridConfig?.rows || 1
   const cols = zone.gridConfig?.cols || 1
   const items = zone.items || []
@@ -239,8 +249,10 @@ function GridContent({ zone, theme, scale = 1, badgeType, priceVariant, showPric
 
   return (
     <div
-      className="grid min-h-0 flex-1 gap-5"
+      className="grid min-h-0 flex-1"
       style={{
+        // gap-5 (20px) était figé : c'est le réglage « Espace entre produits ».
+        gap,
         // minmax(0, 1fr), not a bare 1fr: a bare 1fr track still grows past an
         // even split to fit its content's min-content size, which is exactly
         // how a large "Taille de police" zone size used to push a product
@@ -270,7 +282,7 @@ function GridContent({ zone, theme, scale = 1, badgeType, priceVariant, showPric
   )
 }
 
-function ListContent({ zone, theme, settings, scale = 1, badgeType, priceVariant, zoneShowPrice }) {
+function ListContent({ zone, theme, settings, scale = 1, badgeType, priceVariant, zoneShowPrice, gap }) {
   const items = zone.items || []
   // Le choix de la zone ("Afficher le prix") l'emporte sur le reglage global
   // de l'ecran ; sans choix explicite on garde le reglage global.
@@ -348,9 +360,8 @@ function ListContent({ zone, theme, settings, scale = 1, badgeType, priceVariant
 
   return (
     <div
-      className={`flex min-h-0 flex-1 flex-col justify-center overflow-hidden ${
-        isTextOnly || isImageDetail || anyCustom ? 'gap-5' : ''
-      }`}
+      className="flex min-h-0 flex-1 flex-col justify-center overflow-hidden"
+      style={{ gap: isTextOnly || isImageDetail || anyCustom ? gap : undefined }}
     >
       {items.length === 0 ? (
         <p className="text-center font-menu-body text-sm text-menu-text-muted">Vide</p>
@@ -409,13 +420,13 @@ function BannerContent({ zone, theme, settings, accent, fontSize, badgeType, zon
 // `products` d'une disposition de zone met dans sa boîte, et c'est aussi ce
 // que la disposition d'origine met sous le titre. Un seul endroit décide quel
 // répéteur s'applique.
-function ZoneProducts({ zone, theme, settings, scale, badgeType, priceVariant, zoneShowPrice, kind }) {
+function ZoneProducts({ zone, theme, settings, scale, badgeType, priceVariant, zoneShowPrice, kind, gap }) {
   if (kind === 'free')
     return <FreeContent zone={zone} theme={theme} scale={scale} badgeType={badgeType} priceVariant={priceVariant} showPrice={zoneShowPrice} />
   if (kind === 'grid')
-    return <GridContent zone={zone} theme={theme} scale={scale} badgeType={badgeType} priceVariant={priceVariant} showPrice={zoneShowPrice} />
+    return <GridContent zone={zone} theme={theme} scale={scale} badgeType={badgeType} priceVariant={priceVariant} showPrice={zoneShowPrice} gap={gap} />
   if (kind === 'list')
-    return <ListContent zone={zone} theme={theme} settings={settings} scale={scale} badgeType={badgeType} priceVariant={priceVariant} zoneShowPrice={zoneShowPrice} />
+    return <ListContent zone={zone} theme={theme} settings={settings} scale={scale} badgeType={badgeType} priceVariant={priceVariant} zoneShowPrice={zoneShowPrice} gap={gap} />
   // highlight / type inconnu : le premier produit en carte image + détails
   return zone.items?.[0] ? (
     <ImageTitleDescPriceCard
@@ -433,7 +444,7 @@ function ZoneProducts({ zone, theme, settings, scale, badgeType, priceVariant, z
 // de la zone), un cran plus haut. Le slot `products` porte le répéteur, les
 // autres sont le titre et le décor. Utilisé seulement quand la zone porte une
 // disposition ; sinon on garde l'agencement d'origine plus bas.
-function ZoneSlotsContent({ layout, zone, theme, settings, accent, scale, badgeType, priceVariant, zoneShowPrice, zStyle }) {
+function ZoneSlotsContent({ layout, zone, theme, settings, accent, scale, badgeType, priceVariant, zoneShowPrice, zStyle, gap }) {
   return (
     <div className="relative h-full w-full">
       {layout.slots.map((slot) => {
@@ -460,6 +471,7 @@ function ZoneSlotsContent({ layout, zone, theme, settings, accent, scale, badgeT
                 priceVariant={priceVariant}
                 zoneShowPrice={zoneShowPrice}
                 kind={productKind(zone)}
+                gap={gap}
               />
             </div>
           )
@@ -505,6 +517,7 @@ function ZoneSlotsContent({ layout, zone, theme, settings, accent, scale, badgeT
                 theme={theme}
                 banner={style === 'banner'}
                 fontSize={zStyle.fontSize}
+                titleGap={0}
               />
             </div>
           )
@@ -577,8 +590,8 @@ function productKind(zone) {
 // torn-paper seam — ZoneSeams draws that band 20px deep into this zone (its
 // 40px band is centered ON the shared edge), so content needs to clear that
 // same depth only on that edge, not all four.
-const ZONE_PAD = 10
-const ZONE_PAD_SEAM = 25
+// Les anciennes constantes ZONE_PAD / ZONE_PAD_SEAM vivent dans le schéma
+// partagé : ZONE_STYLE_LIMITS.padding.fallback vaut 10, ZONE_PAD_SEAM 25.
 
 export default function ZoneRenderer({ zone, theme, settings, seamEdges }) {
   const zStyle = zone.backgroundStyle || {}
@@ -588,7 +601,18 @@ export default function ZoneRenderer({ zone, theme, settings, seamEdges }) {
   // per-zone background replaces it only when explicitly set
   const bg = zStyle.bgImage ? undefined : zStyle.bg
   const text = zStyle.text || (isDark ? '#FFFFFF' : '#1A1A1A')
-  const muted = text === '#FFFFFF' ? '#EEEEEE' : '#8A8A8A'
+  // Le texte secondaire n'avait que deux valeurs possibles, déduites de la
+  // couleur du texte principal. Il reste ce repli, mais la zone peut le fixer.
+  const muted = zStyle.textMuted || (text === '#FFFFFF' ? '#EEEEEE' : '#8A8A8A')
+
+  // Mise en forme de la zone : chaque réglage remplace une valeur qui était
+  // écrite en dur ici. Sans réglage, on retombe exactement dessus.
+  const padding = zoneStyleValue(zStyle, 'padding')
+  const gap = zoneStyleValue(zStyle, 'gap')
+  const titleGap = zoneStyleValue(zStyle, 'titleGap')
+  const radius = zoneStyleValue(zStyle, 'radius')
+  const shadowBlur = zoneStyleValue(zStyle, 'shadow')
+  const borderWidth = zoneStyleValue(zStyle, 'borderWidth')
   // Tailwind resolves var(--color-menu-text) at the :root declaration, which
   // freezes --menu-text to the root theme color. Re-export the runtime tokens
   // under their --color-* names directly on the zone so the overrides win.
@@ -659,6 +683,7 @@ export default function ZoneRenderer({ zone, theme, settings, seamEdges }) {
         priceVariant={priceVariant}
         zoneShowPrice={zoneShowPrice}
         zStyle={zStyle}
+        gap={gap}
       />
     )
   } else if (isBanner) {
@@ -666,7 +691,7 @@ export default function ZoneRenderer({ zone, theme, settings, seamEdges }) {
   } else if (isFree) {
     content = (
       <div className="flex h-full flex-col">
-        <ZoneTitle name={zone.name} accent={accent} extraPrice={zone.backgroundStyle?.extraPrice} badgeType={zStyle.badgeType} theme={theme} banner={zone.backgroundStyle?.banner} fontSize={zStyle.fontSize} />
+        <ZoneTitle name={zone.name} accent={accent} extraPrice={zone.backgroundStyle?.extraPrice} badgeType={zStyle.badgeType} theme={theme} banner={zone.backgroundStyle?.banner} fontSize={zStyle.fontSize} titleGap={titleGap} />
         <div className="relative min-h-0 flex-1">
           <div className="flex h-full flex-col" style={contentBoxStyle}>
             <FreeContent zone={zone} theme={theme} scale={cardScale} badgeType={zStyle.badgeType} priceVariant={priceVariant} showPrice={zoneShowPrice} />
@@ -677,10 +702,10 @@ export default function ZoneRenderer({ zone, theme, settings, seamEdges }) {
   } else if (isGrid) {
     content = (
       <div className="flex h-full flex-col">
-        <ZoneTitle name={zone.name} accent={accent} extraPrice={zone.backgroundStyle?.extraPrice} badgeType={zStyle.badgeType} theme={theme} banner={zone.backgroundStyle?.banner} fontSize={zStyle.fontSize} />
+        <ZoneTitle name={zone.name} accent={accent} extraPrice={zone.backgroundStyle?.extraPrice} badgeType={zStyle.badgeType} theme={theme} banner={zone.backgroundStyle?.banner} fontSize={zStyle.fontSize} titleGap={titleGap} />
         <div className="relative min-h-0 flex-1">
           <div className="flex h-full flex-col" style={contentBoxStyle}>
-            <GridContent zone={zone} theme={theme} scale={cardScale} badgeType={zStyle.badgeType} priceVariant={priceVariant} showPrice={zoneShowPrice} />
+            <GridContent zone={zone} theme={theme} scale={cardScale} badgeType={zStyle.badgeType} priceVariant={priceVariant} showPrice={zoneShowPrice} gap={gap} />
           </div>
         </div>
       </div>
@@ -688,10 +713,10 @@ export default function ZoneRenderer({ zone, theme, settings, seamEdges }) {
   } else if (isList) {
     content = (
       <div className="flex h-full flex-col">
-        <ZoneTitle name={zone.name} accent={accent} extraPrice={zone.backgroundStyle?.extraPrice} badgeType={zStyle.badgeType} theme={theme} banner={zone.backgroundStyle?.banner} fontSize={zStyle.fontSize} />
+        <ZoneTitle name={zone.name} accent={accent} extraPrice={zone.backgroundStyle?.extraPrice} badgeType={zStyle.badgeType} theme={theme} banner={zone.backgroundStyle?.banner} fontSize={zStyle.fontSize} titleGap={titleGap} />
         <div className="relative min-h-0 flex-1">
           <div className="flex h-full flex-col" style={contentBoxStyle}>
-            <ListContent zone={zone} theme={theme} settings={settings} scale={cardScale} badgeType={zStyle.badgeType} priceVariant={priceVariant} zoneShowPrice={zoneShowPrice} />
+            <ListContent zone={zone} theme={theme} settings={settings} scale={cardScale} badgeType={zStyle.badgeType} priceVariant={priceVariant} zoneShowPrice={zoneShowPrice} gap={gap} />
           </div>
         </div>
       </div>
@@ -700,7 +725,7 @@ export default function ZoneRenderer({ zone, theme, settings, seamEdges }) {
     // highlight / unknown: zone name + first item as image-title-desc card
     content = (
       <div className="flex h-full flex-col justify-center gap-4">
-        <ZoneTitle name={zone.name} accent={accent} extraPrice={zone.backgroundStyle?.extraPrice} badgeType={zStyle.badgeType} theme={theme} banner={zone.backgroundStyle?.banner} fontSize={zStyle.fontSize} />
+        <ZoneTitle name={zone.name} accent={accent} extraPrice={zone.backgroundStyle?.extraPrice} badgeType={zStyle.badgeType} theme={theme} banner={zone.backgroundStyle?.banner} fontSize={zStyle.fontSize} titleGap={titleGap} />
         {zone.items?.[0] ? (
           <ImageTitleDescPriceCard
             item={zone.items[0].item}
@@ -715,13 +740,23 @@ export default function ZoneRenderer({ zone, theme, settings, seamEdges }) {
     )
   }
 
-  const pad = (side) => (isBanner ? 0 : seamEdges?.[side] ? ZONE_PAD_SEAM : ZONE_PAD)
+  // Un bord qui porte une couture papier déchiré doit dégager la bande que
+  // ZoneSeams dessine par-dessus (25px) — une marge plus grande choisie par
+  // l'admin l'emporte, une plus petite est relevée à ce minimum.
+  const pad = (side) => {
+    if (isBanner) return 0
+    return seamEdges?.[side] ? Math.max(padding, ZONE_PAD_SEAM) : padding
+  }
 
   return (
     <div
       className="relative h-full w-full overflow-hidden"
       style={{
         background: bg,
+        borderRadius: radius || undefined,
+        border: zStyle.border ? `${borderWidth}px solid ${zStyle.border}` : undefined,
+        boxShadow: shadowBlur ? `0 ${Math.round(shadowBlur / 3)}px ${shadowBlur}px rgba(0,0,0,0.35)` : undefined,
+        fontFamily: zStyle.fontFamily || undefined,
         paddingTop: pad('top'),
         paddingRight: pad('right'),
         paddingBottom: pad('bottom'),
