@@ -159,7 +159,16 @@ export const BG_PATTERN_LABELS = {
 }
 
 // Couche décorative libre (T8), stockée dans layout.settings.elements.
-export const ELEMENT_TYPES = ['image', 'text', 'logo']
+// 'logo' est l'ancien nom de 'icon' : les deux se dessinent et s'éditent
+// exactement pareil, on garde le mot pour ne pas casser les layouts déjà
+// enregistrés.
+export const ELEMENT_TYPES = ['image', 'text', 'logo', 'icon']
+export const ELEMENT_TYPE_LABELS = {
+  image: 'Image',
+  text: 'Texte',
+  logo: 'Logo',
+  icon: 'Icône',
+}
 export const ELEMENT_KINDS = ['plain', 'banner', 'hero', 'divider', 'price']
 export const ELEMENT_KIND_LABELS = {
   plain: 'Texte simple',
@@ -179,6 +188,21 @@ export const FONT_OPTIONS = [
   { value: 'Roboto Flex', label: 'Roboto Flex' },
 ]
 
+// Réglages d'un élément dessiné (image, logo, icône).
+//   fit     — le dessin garde ses proportions dans sa boîte, ou l'étire.
+//   bgShape — la pastille posée derrière le dessin (badge catégorie).
+export const ELEMENT_FITS = ['contain', 'fill']
+export const ELEMENT_FIT_LABELS = {
+  contain: 'Proportions',
+  fill: 'Étirer',
+}
+export const ELEMENT_BG_SHAPES = ['none', 'circle', 'square']
+export const ELEMENT_BG_SHAPE_LABELS = {
+  none: 'Aucune',
+  circle: 'Cercle',
+  square: 'Carré',
+}
+
 
 // ============================================================================
 // 3. LIMITES
@@ -193,6 +217,9 @@ export const BACKGROUND_ANGLE_MAX = 180
 export const IMAGE_URL_MAX = 2048
 export const CONTENT_BOX_MIN = 10
 export const EL_IMAGE_MAX_PX = 1000
+// Marge intérieure d'un élément dessiné, en % de sa boîte. Plafonnée bien
+// avant 50% : à 50% le dessin n'a plus aucune place et disparaît.
+export const EL_PADDING_MAX = 45
 
 // Couleur : hex (#abc → #aabbccdd), rgb(a)/hsl(a), un mot-clé CSS, ou un jeton
 // du thème — var(--menu-accent), var(--menu-text-muted)... Les jetons laissent
@@ -227,6 +254,18 @@ export const BG_DEFAULTS = {
 // Sous-zone (T9) : la boîte du conteneur de produits à l'intérieur de la zone,
 // en % de l'espace restant sous le titre. Absente = remplit tout cet espace.
 export const DEFAULT_CONTENT_BOX = { x: 0, y: 0, w: 100, h: 100 }
+
+// Valeurs de départ d'une icône fraîchement posée sur le canvas. Elles ne
+// servent QU'À la création : le rendu, lui, retombe sur les défauts hérités
+// (voir elementVisualStyle) pour qu'un vieil élément ne bouge pas.
+export const ICON_DEFAULTS = {
+  color: '#FFFFFF',
+  fit: 'contain',
+  bgShape: 'none',
+  bgColor: '#FF5A1F',
+  padding: 0,
+  opacity: 1,
+}
 
 export const FONT_SIZES = [6, 8, 10, 12, 14, 16, 18, 20, 24, 28]
 
@@ -538,6 +577,78 @@ export function sanitizeBackgroundStyle(backgroundStyle) {
   }
   const same = ['x', 'y', 'w', 'h'].every((k) => fixed[k] === box[k])
   return same ? backgroundStyle : { ...backgroundStyle, contentBox: fixed }
+}
+
+
+// ============================================================================
+// 5.5 ÉLÉMENTS DESSINÉS (image / logo / icône)
+// ============================================================================
+//
+// Un élément dessiné, c'est un fichier (SVG de préférence pour une icône, PNG
+// détouré sinon) posé librement sur l'écran. L'admin et la TV doivent en
+// donner exactement le même rendu : les styles se calculent donc ici une seule
+// fois, pas dans chacun des deux composants.
+
+// Une URL qui part dans une valeur CSS. Guillemets et antislashs échappés :
+// sans ça une URL tordue pourrait fermer le url(...) et injecter du style.
+export function cssUrl(url) {
+  return 'url("' + String(url || '').replace(/["\\]/g, '\\$&') + '")'
+}
+
+// Recolorer un fichier qu'on ne contrôle pas, sans le charger dans le DOM :
+// on s'en sert comme masque CSS. Le fichier ne donne plus ses couleurs, juste
+// sa forme (son alpha), et la couleur vient d'un aplat posé derrière. Ça
+// marche avec n'importe quel dessin à fond transparent, ne demande pas de
+// CORS, et n'exécute jamais le contenu du fichier — un SVG uploadé ne peut
+// donc pas injecter de script. Sans `color`, le fichier est rendu tel quel,
+// avec ses couleurs d'origine.
+//
+// Renvoie trois morceaux :
+//   frame  — la boîte : pastille de fond, marge intérieure, opacité
+//   mask   — le style du calque recoloré, ou null si couleurs d'origine
+//   fit    — l'object-fit à donner au <img> quand mask est null
+// Les défauts reproduisent l'ancien rendu (image étirée, sans pastille), donc
+// un layout déjà enregistré ne bouge pas d'un pixel.
+export function elementVisualStyle(el) {
+  const e = el || {}
+  const fit = ELEMENT_FITS.includes(e.fit) ? e.fit : 'fill'
+  const shape = ELEMENT_BG_SHAPES.includes(e.bgShape) ? e.bgShape : 'none'
+  const padNum = Number(e.padding)
+  const pad = Number.isFinite(padNum) ? Math.max(0, Math.min(EL_PADDING_MAX, padNum)) : 0
+  const opacityNum = Number(e.opacity)
+  const opacity = Number.isFinite(opacityNum) ? Math.max(0, Math.min(1, opacityNum)) : 1
+
+  const frame = {
+    width: '100%',
+    height: '100%',
+    padding: pad ? pad + '%' : undefined,
+    opacity: opacity === 1 ? undefined : opacity,
+    backgroundColor: shape === 'none' ? undefined : e.bgColor || ICON_DEFAULTS.bgColor,
+    // Un cercle parfait suppose une boîte carrée ; sinon c'est une ellipse,
+    // ce qui reste le comportement attendu quand on étire la boîte.
+    borderRadius: shape === 'circle' ? '50%' : shape === 'square' ? '18%' : undefined,
+    boxSizing: 'border-box',
+  }
+
+  if (!e.color) return { frame: frame, mask: null, fit: fit === 'contain' ? 'contain' : 'fill' }
+
+  const size = fit === 'contain' ? 'contain' : '100% 100%'
+  const image = cssUrl(e.imageUrl)
+  const mask = {
+    width: '100%',
+    height: '100%',
+    display: 'block',
+    backgroundColor: e.color,
+    WebkitMaskImage: image,
+    maskImage: image,
+    WebkitMaskRepeat: 'no-repeat',
+    maskRepeat: 'no-repeat',
+    WebkitMaskPosition: 'center',
+    maskPosition: 'center',
+    WebkitMaskSize: size,
+    maskSize: size,
+  }
+  return { frame: frame, mask: mask, fit: fit === 'contain' ? 'contain' : 'fill' }
 }
 
 
@@ -905,7 +1016,7 @@ export function validateElementsConfig(elements) {
     if (el.zIndex !== undefined && !Number.isInteger(el.zIndex)) {
       errors.push(`${p}.zIndex must be an integer`)
     }
-    if ((el.type === 'image' || el.type === 'logo') && (typeof el.imageUrl !== 'string' || el.imageUrl.trim() === '')) {
+    if (el.type !== 'text' && el.type !== undefined && (typeof el.imageUrl !== 'string' || el.imageUrl.trim() === '')) {
       errors.push(`${p}.imageUrl is required for type "${el.type}"`)
     }
     if (el.type === 'text' && el.kind !== 'price' && (typeof el.text !== 'string' || el.text.trim() === '')) {
@@ -935,6 +1046,23 @@ export function validateElementsConfig(elements) {
     }
     if (el.color !== undefined && !isColor(el.color)) {
       errors.push(`${p}.color must be a valid color`)
+    }
+    // Réglages des éléments dessinés (image/logo/icône). Tous facultatifs :
+    // absents, elementVisualStyle() retombe sur l'ancien rendu.
+    if (el.fit !== undefined && !ELEMENT_FITS.includes(el.fit)) {
+      errors.push(`${p}.fit must be one of ${ELEMENT_FITS.join(', ')}`)
+    }
+    if (el.bgShape !== undefined && !ELEMENT_BG_SHAPES.includes(el.bgShape)) {
+      errors.push(`${p}.bgShape must be one of ${ELEMENT_BG_SHAPES.join(', ')}`)
+    }
+    if (el.bgColor !== undefined && !isColor(el.bgColor)) {
+      errors.push(`${p}.bgColor must be a valid color`)
+    }
+    if (el.padding !== undefined && (!isNum(el.padding) || el.padding < 0 || el.padding > EL_PADDING_MAX)) {
+      errors.push(`${p}.padding must be a number between 0 and ${EL_PADDING_MAX}`)
+    }
+    if (el.opacity !== undefined && (!isNum(el.opacity) || el.opacity < 0 || el.opacity > 1)) {
+      errors.push(`${p}.opacity must be a number between 0 and 1`)
     }
   })
   return errors

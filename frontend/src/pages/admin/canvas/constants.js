@@ -23,6 +23,13 @@ export {
   DEFAULT_CONTENT_BOX,
   CONTENT_BOX_MIN,
   EL_IMAGE_MAX_PX,
+  EL_PADDING_MAX,
+  ELEMENT_TYPE_LABELS,
+  ELEMENT_FITS,
+  ELEMENT_FIT_LABELS,
+  ELEMENT_BG_SHAPES,
+  ELEMENT_BG_SHAPE_LABELS,
+  ICON_DEFAULTS,
   ZONE_TYPE_LABELS,
   CARD_TEMPLATES,
   CARD_TEMPLATE_LABELS,
@@ -54,6 +61,10 @@ export const pxToPctW = (px) => (px / EL_DESIGN_W) * 100
 export const pxToPctH = (px) => (px / EL_DESIGN_H) * 100
 export const pctToPxW = (pct) => Math.round((pct / 100) * EL_DESIGN_W)
 export const pctToPxH = (pct) => Math.round((pct / 100) * EL_DESIGN_H)
+
+// Côté (en px de la maquette) d'une icône fraîchement posée : assez grande pour
+// se voir depuis un canapé, assez petite pour ne pas manger l'écran.
+export const ICON_START_PX = 160
 
 // ---------------------------------------------------------------------------
 // Propre à l'interface d'édition

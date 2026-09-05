@@ -16,6 +16,7 @@ import CardTemplatePreview from './canvas/CardTemplatePreview'
 import StyledZoneContent from './canvas/StyledZoneContent'
 import PresetThumb from './canvas/PresetThumb'
 import CardDesigner from './canvas/CardDesigner'
+import ElementVisual from './canvas/ElementVisual'
 import {
   GRID,
   REQUIRES_GRID,
@@ -23,6 +24,14 @@ import {
   DEFAULT_CONTENT_BOX,
   CONTENT_BOX_MIN,
   EL_IMAGE_MAX_PX,
+  EL_PADDING_MAX,
+  ICON_START_PX,
+  ELEMENT_TYPE_LABELS,
+  ELEMENT_FITS,
+  ELEMENT_FIT_LABELS,
+  ELEMENT_BG_SHAPES,
+  ELEMENT_BG_SHAPE_LABELS,
+  ICON_DEFAULTS,
   pxToPctW,
   pxToPctH,
   pctToPxW,
@@ -1274,6 +1283,23 @@ function ScreenLayoutCanvas() {
     elAddTypeRef.current = type
     elAddInputRef.current?.click()
   }
+  // Image, logo ou icône : même élément, seuls les réglages de départ changent.
+  // Une icône naît carrée (une icône étirée n'a pas de sens) et recolorée en
+  // blanc, ce qui la rend visible tout de suite sur un fond sombre.
+  const newDrawnElement = (type, url) => {
+    const square = type === 'icon'
+    return {
+      id: newElementId(),
+      type,
+      x: 40,
+      y: 40,
+      w: square ? pxToPctW(ICON_START_PX) : 20,
+      h: square ? pxToPctH(ICON_START_PX) : 20,
+      zIndex: nextElementZ(),
+      imageUrl: url,
+      ...(square ? ICON_DEFAULTS : {}),
+    }
+  }
   // Gallery of every image already used by a free element on this layout —
   // lets the user drop the same logo/image on canvas again without
   // re-uploading the file.
@@ -1281,17 +1307,7 @@ function ScreenLayoutCanvas() {
     new Set(elements.filter((el) => el.imageUrl).map((el) => el.imageUrl))
   )
   const addElementFromGalleryUrl = (url) => {
-    const el = {
-      id: newElementId(),
-      type: 'image',
-      x: 40,
-      y: 40,
-      w: 20,
-      h: 20,
-      zIndex: nextElementZ(),
-      imageUrl: url,
-    }
-    addElementToState(el)
+    addElementToState(newDrawnElement('image', url))
   }
   // Same mechanism as addElementFromGalleryUrl — the asset's URL is already
   // hosted, so no upload step needed. Jump to the "Éléments" tab afterward:
@@ -1299,17 +1315,7 @@ function ScreenLayoutCanvas() {
   // `panelTab === 'elements'` overlay below) instead of duplicating that
   // logic for a second tab.
   const addElementFromLibraryAsset = (asset) => {
-    const el = {
-      id: newElementId(),
-      type: 'image',
-      x: 40,
-      y: 40,
-      w: 20,
-      h: 20,
-      zIndex: nextElementZ(),
-      imageUrl: asset.url,
-    }
-    addElementToState(el)
+    addElementToState(newDrawnElement('image', asset.url))
     setPanelTab('elements')
   }
   const handleElAddUpload = async (e) => {
@@ -1323,17 +1329,7 @@ function ScreenLayoutCanvas() {
       const { data } = await api.post('/upload', fd, {
         headers: { 'Content-Type': 'multipart/form-data' },
       })
-      const el = {
-        id: newElementId(),
-        type: elAddTypeRef.current,
-        x: 40,
-        y: 40,
-        w: 20,
-        h: 20,
-        zIndex: nextElementZ(),
-        imageUrl: data.url,
-      }
-      await addElementToState(el)
+      await addElementToState(newDrawnElement(elAddTypeRef.current, data.url))
     } catch (err) {
       setError(err.response?.data?.error || 'Échec de l’upload de l’image')
     } finally {
@@ -2323,16 +2319,20 @@ function ScreenLayoutCanvas() {
                     <button
                       type="button"
                       disabled={elUploading}
-                      onClick={() => openElAddPicker('logo')}
+                      onClick={() => openElAddPicker('icon')}
+                      title="SVG de préférence : net à toute taille et recolorable"
                       className="flex-1 rounded-lg border px-2 py-2 text-sm font-medium transition-colors hover:border-brand-300 hover:text-brand-600 dark:border-gray-700 dark:text-gray-300"
                     >
-                      Logo
+                      Icône
                     </button>
                   </div>
+                  {/* .svg listé en plus de image/* : certains systèmes ne
+                      déclarent pas le type MIME des .svg dans le sélecteur de
+                      fichiers, et le fichier apparaîtrait alors grisé. */}
                   <input
                     ref={elAddInputRef}
                     type="file"
-                    accept="image/*"
+                    accept="image/*,.svg"
                     className="hidden"
                     onChange={handleElAddUpload}
                   />
@@ -2376,19 +2376,19 @@ function ScreenLayoutCanvas() {
                           Tx
                         </span>
                       ) : el.imageUrl ? (
-                        <img
-                          src={el.imageUrl}
-                          alt=""
-                          className="h-9 w-9 flex-none rounded object-cover"
-                        />
+                        // Fond sombre : une icône recolorée en blanc serait
+                        // invisible sur la vignette claire par défaut.
+                        <span className="h-9 w-9 flex-none overflow-hidden rounded bg-gray-800 p-0.5">
+                          <ElementVisual el={el} />
+                        </span>
                       ) : (
                         <span className="flex h-9 w-9 flex-none items-center justify-center rounded text-xs font-bold text-gray-500 dark:text-gray-400">
                           {el.type.slice(0, 2).toUpperCase()}
                         </span>
                       )}
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium capitalize text-gray-800 dark:text-white/90">
-                          {el.type}
+                        <p className="truncate text-sm font-medium text-gray-800 dark:text-white/90">
+                          {ELEMENT_TYPE_LABELS[el.type] || el.type}
                         </p>
                         <p className="truncate text-xs text-gray-400">
                           {el.type === 'text' ? el.text : el.imageUrl || '—'}
@@ -2412,7 +2412,7 @@ function ScreenLayoutCanvas() {
                   {selectedElement && (
                     <div className="space-y-4 rounded-lg border border-gray-200 p-3 dark:border-gray-700">
                       <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">
-                        Éditer ({selectedElement.type})
+                        Éditer ({ELEMENT_TYPE_LABELS[selectedElement.type] || selectedElement.type})
                       </p>
                       {selectedElement.type === 'text' ? (
                         <>
@@ -2596,23 +2596,29 @@ function ScreenLayoutCanvas() {
                         </>
                       ) : (
                         <div className="space-y-3">
+                          {/* Aperçu sur fond sombre et avec les mêmes styles que
+                              la TV : une icône recolorée en blanc doit se voir
+                              telle qu'elle s'affichera, pas en couleurs
+                              d'origine sur du blanc. */}
                           {selectedElement.imageUrl ? (
-                            <img
-                              src={selectedElement.imageUrl}
-                              alt=""
-                              className="h-24 w-full rounded-lg border border-gray-200 object-contain dark:border-gray-700"
-                            />
+                            <div className="h-24 w-full rounded-lg border border-gray-200 bg-gray-800 p-2 dark:border-gray-700">
+                              <ElementVisual el={selectedElement} />
+                            </div>
                           ) : null}
                           <label
                             className={`flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-gray-300 px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:border-brand-300 hover:text-brand-600 dark:border-gray-700 dark:text-gray-300 dark:hover:text-brand-400 ${
                               elUploading ? 'opacity-60' : ''
                             }`}
                           >
-                            {elUploading ? 'Upload...' : selectedElement.imageUrl ? 'Changer l’image' : 'Importer une image'}
+                            {elUploading
+                              ? 'Upload...'
+                              : selectedElement.imageUrl
+                                ? 'Changer le fichier'
+                                : 'Importer un fichier'}
                             <input
                               ref={elChangeInputRef}
                               type="file"
-                              accept="image/*"
+                              accept="image/*,.svg"
                               className="hidden"
                               onChange={handleElChangeUpload}
                               disabled={elUploading}
@@ -2646,6 +2652,127 @@ function ScreenLayoutCanvas() {
                                   const px = clamp(Number(e.target.value) || 1, 1, EL_IMAGE_MAX_PX)
                                   patchElementById(selectedElement.id, { h: pxToPctH(px) })
                                 }}
+                              />
+                            </div>
+                          </div>
+
+                          {/* Sans réglage enregistré, un élément dessiné garde
+                              son comportement historique : étiré sur toute sa
+                              boîte (voir elementVisualStyle). */}
+                          <div>
+                            <Label>Dans la boîte</Label>
+                            <div className="grid grid-cols-2 gap-1.5">
+                              {ELEMENT_FITS.map((f) => (
+                                <button
+                                  key={f}
+                                  type="button"
+                                  onClick={() => patchElementById(selectedElement.id, { fit: f })}
+                                  className={`rounded-lg border px-2 py-1.5 text-xs font-medium transition-colors ${
+                                    (selectedElement.fit || 'fill') === f
+                                      ? 'border-brand-500 bg-brand-50 text-brand-600 dark:bg-brand-500/15 dark:text-brand-400'
+                                      : 'border-gray-200 text-gray-500 hover:border-brand-300 dark:border-gray-700 dark:text-gray-400'
+                                  }`}
+                                >
+                                  {ELEMENT_FIT_LABELS[f]}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* Recoloration : le fichier sert de pochoir, sa
+                              couleur d'origine est remplacée par un aplat.
+                              Marche sur un SVG comme sur un PNG détouré ; sur
+                              une photo à fond plein ça donne un rectangle de
+                              couleur, d'où le bouton retour aux couleurs
+                              d'origine. */}
+                          <div>
+                            <Label htmlFor={`el-icolor-${selectedElement.id}`}>Couleur du dessin</Label>
+                            <div className="flex items-center gap-2">
+                              <input
+                                id={`el-icolor-${selectedElement.id}`}
+                                type="color"
+                                value={selectedElement.color || ICON_DEFAULTS.color}
+                                onChange={(e) => patchElementById(selectedElement.id, { color: e.target.value })}
+                                className="h-10 w-14 cursor-pointer rounded-md border border-gray-300 bg-transparent p-1 dark:border-gray-700"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => patchElementById(selectedElement.id, { color: undefined })}
+                                className={`rounded-md border px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                                  selectedElement.color
+                                    ? 'border-gray-200 text-gray-500 hover:border-brand-300 hover:text-brand-600 dark:border-gray-700 dark:text-gray-400'
+                                    : 'border-brand-500 bg-brand-50 text-brand-600 dark:bg-brand-500/15 dark:text-brand-400'
+                                }`}
+                              >
+                                Couleurs d’origine
+                              </button>
+                            </div>
+                          </div>
+
+                          <div>
+                            <Label>Pastille de fond</Label>
+                            <div className="grid grid-cols-3 gap-1.5">
+                              {ELEMENT_BG_SHAPES.map((sh) => (
+                                <button
+                                  key={sh}
+                                  type="button"
+                                  onClick={() => patchElementById(selectedElement.id, { bgShape: sh })}
+                                  className={`rounded-lg border px-2 py-1.5 text-xs font-medium transition-colors ${
+                                    (selectedElement.bgShape || 'none') === sh
+                                      ? 'border-brand-500 bg-brand-50 text-brand-600 dark:bg-brand-500/15 dark:text-brand-400'
+                                      : 'border-gray-200 text-gray-500 hover:border-brand-300 dark:border-gray-700 dark:text-gray-400'
+                                  }`}
+                                >
+                                  {ELEMENT_BG_SHAPE_LABELS[sh]}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          {(selectedElement.bgShape || 'none') !== 'none' && (
+                            <div>
+                              <Label htmlFor={`el-bgcolor-${selectedElement.id}`}>Couleur de la pastille</Label>
+                              <input
+                                id={`el-bgcolor-${selectedElement.id}`}
+                                type="color"
+                                value={selectedElement.bgColor || ICON_DEFAULTS.bgColor}
+                                onChange={(e) => patchElementById(selectedElement.id, { bgColor: e.target.value })}
+                                className="h-10 w-14 cursor-pointer rounded-md border border-gray-300 bg-transparent p-1 dark:border-gray-700"
+                              />
+                            </div>
+                          )}
+
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <Label htmlFor={`el-pad-${selectedElement.id}`}>
+                                Marge (%, max {EL_PADDING_MAX})
+                              </Label>
+                              <Input
+                                id={`el-pad-${selectedElement.id}`}
+                                type="number"
+                                min="0"
+                                max={EL_PADDING_MAX}
+                                value={selectedElement.padding ?? 0}
+                                onChange={(e) =>
+                                  patchElementById(selectedElement.id, {
+                                    padding: clamp(Number(e.target.value) || 0, 0, EL_PADDING_MAX),
+                                  })
+                                }
+                              />
+                            </div>
+                            <div>
+                              <Label htmlFor={`el-op-${selectedElement.id}`}>Opacité (%)</Label>
+                              <Input
+                                id={`el-op-${selectedElement.id}`}
+                                type="number"
+                                min="0"
+                                max="100"
+                                value={Math.round((selectedElement.opacity ?? 1) * 100)}
+                                onChange={(e) =>
+                                  patchElementById(selectedElement.id, {
+                                    opacity: clamp(Number(e.target.value) || 0, 0, 100) / 100,
+                                  })
+                                }
                               />
                             </div>
                           </div>
@@ -3378,12 +3505,7 @@ function ScreenLayoutCanvas() {
                           {el.text}
                         </div>
                       ) : el.imageUrl ? (
-                        <img
-                          src={el.imageUrl}
-                          alt=""
-                          draggable={false}
-                          className="h-full w-full object-fill"
-                        />
+                        <ElementVisual el={el} />
                       ) : (
                         <div className="flex h-full w-full items-center justify-center bg-gray-700/50 text-[10px] text-gray-300">
                           {el.type}
