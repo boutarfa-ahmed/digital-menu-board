@@ -16,7 +16,7 @@ import { badgeStyleOf, currencyOf, badgeTypeOf } from '../../theme/designTokens'
 // Dessin de carte appliqué à un produit : sa propre surcharge
 // (backgroundStyle.cardLayouts[itemId]) sinon celui de la zone
 // (backgroundStyle.cardLayout). Mêmes règles que le builder — schéma partagé.
-import { ownCardLayout, resolveCardLayout } from '../../shared/menuSchema'
+import { ownCardLayout, resolveCardLayout, isFreeZone, freeItemBox } from '../../shared/menuSchema'
 
 function bannerSizeOf(fontSize) {
   if (!fontSize) return undefined
@@ -137,15 +137,94 @@ function GridImageCell({ zi, template, scale = 1, theme, showPrice = false, badg
   )
 }
 
+// Une carte produit telle que la zone la rend, quel que soit le placement :
+// dans une cellule de grille ou dans sa propre boîte en placement libre. Le
+// dessin propre au produit gagne, sinon le template de la zone décide.
+// Extrait de GridContent — le placement libre passe par exactement ce chemin
+// plutôt que d'en dupliquer un deuxième.
+function itemCard({ zone, zi, theme, scale = 1, badgeType, priceVariant, showPrice, mirror = false }) {
+  const template = zone.cardTemplate
+  const priceProps = { theme, badgeType, variant: priceVariant }
+  const own = ownCardLayout(zone, zi.itemId)
+
+  if (template === 'custom' || own)
+    return (
+      <CustomCard
+        item={zi.item}
+        layout={own || resolveCardLayout(zone, zi.itemId)}
+        badgeConfig={zone.badgeConfig}
+        qty={zi.qty != null ? zi.qty : null}
+        {...priceProps}
+      />
+    )
+  if (template === 'icon-label')
+    return <IconLabelCard item={zi.item} scale={scale} showPrice={showPrice === true} {...priceProps} />
+  if (template === 'text-only')
+    return <TextOnlyCard item={zi.item} scale={scale} showPrice={showPrice === true} {...priceProps} />
+  if (template === 'image-title-desc-price')
+    return (
+      <ImageTitleDescPriceCard
+        item={zi.item}
+        theme={theme}
+        showPrice={showPrice !== false}
+        template="default"
+        zoneSize="sm"
+        mirror={mirror}
+        scale={scale}
+        badgeType={badgeType}
+        variant={priceVariant}
+      />
+    )
+  return (
+    <GridImageCell
+      zi={zi}
+      template={template}
+      scale={scale}
+      showPrice={showPrice === true}
+      {...priceProps}
+    />
+  )
+}
+
+// Placement libre : chaque produit occupe sa propre boîte en % de la zone, au
+// lieu d'une cellule d'une grille régulière. C'est ce qui permet une
+// composition asymétrique — un gros produit à gauche, trois petits à droite.
+function FreeContent({ zone, theme, scale = 1, badgeType, priceVariant, showPrice }) {
+  const items = zone.items || []
+  if (items.length === 0) {
+    return <p className="text-center font-menu-body text-sm text-menu-text-muted">Vide</p>
+  }
+  return (
+    <div className="relative min-h-0 flex-1">
+      {items.map((zi, i) => {
+        const box = freeItemBox(zi, i)
+        return (
+          <div
+            key={zi.itemId}
+            className="absolute"
+            style={{
+              left: `${box.x}%`,
+              top: `${box.y}%`,
+              width: `${box.w}%`,
+              height: `${box.h}%`,
+              // Même repère que la cellule de grille : la carte mesure sa
+              // largeur/hauteur par rapport à SA boîte, donc un dessin fait
+              // dans l'éditeur tombe juste.
+              containerType: 'size',
+            }}
+          >
+            {itemCard({ zone, zi, theme, scale, badgeType, priceVariant, showPrice })}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 function GridContent({ zone, theme, scale = 1, badgeType, priceVariant, showPrice }) {
   const rows = zone.gridConfig?.rows || 1
   const cols = zone.gridConfig?.cols || 1
   const items = zone.items || []
-  const template = zone.cardTemplate
-  const isIconLabel = template === 'icon-label'
-  const isTextOnly = template === 'text-only'
-  const isImageDetail = template === 'image-title-desc-price'
-  const isCustom = template === 'custom'
   const cells = Array.from({ length: rows * cols }, (_, i) => {
     const r = Math.floor(i / cols)
     const c = i % cols
@@ -155,54 +234,8 @@ function GridContent({ zone, theme, scale = 1, badgeType, priceVariant, showPric
   // "Afficher le prix" (zone) : les cartes image+details montrent le prix par
   // defaut (showPrice !== false), les autres templates ne le montrent que si
   // la case est explicitement cochee (showPrice === true).
-  const priceProps = { theme, badgeType, variant: priceVariant }
-
-  const cellContent = (zi, i) => {
-    // Un produit qui a son propre dessin (icône stylo) rend une carte perso
-    // même dans une zone restée en "Compact" / "Par défaut" : seul ce produit
-    // change, ses voisins gardent le template de la zone.
-    const own = ownCardLayout(zone, zi.itemId)
-    if (isCustom || own)
-      return (
-        <CustomCard
-          item={zi.item}
-          layout={own || resolveCardLayout(zone, zi.itemId)}
-          badgeConfig={zone.badgeConfig}
-          qty={zi.qty != null ? zi.qty : null}
-          {...priceProps}
-        />
-      )
-    if (isIconLabel)
-      return <IconLabelCard item={zi.item} scale={scale} showPrice={showPrice === true} {...priceProps} />
-    if (isTextOnly)
-      return <TextOnlyCard item={zi.item} scale={scale} showPrice={showPrice === true} {...priceProps} />
-    if (isImageDetail) {
-      const c = i % cols
-      const mirror = c >= Math.ceil(cols / 2)
-      return (
-        <ImageTitleDescPriceCard
-          item={zi.item}
-          theme={theme}
-          showPrice={showPrice !== false}
-          template="default"
-          zoneSize="sm"
-          mirror={mirror}
-          scale={scale}
-          badgeType={badgeType}
-          variant={priceVariant}
-        />
-      )
-    }
-    return (
-      <GridImageCell
-        zi={zi}
-        template={template}
-        scale={scale}
-        showPrice={showPrice === true}
-        {...priceProps}
-      />
-    )
-  }
+  const cellContent = (zi, i) =>
+    itemCard({ zone, zi, theme, scale, badgeType, priceVariant, showPrice, mirror: (i % cols) >= Math.ceil(cols / 2) })
 
   return (
     <div
@@ -401,8 +434,11 @@ export default function ZoneRenderer({ zone, theme, settings, seamEdges }) {
   }
 
   const isBanner = zone.zoneType === 'banner' || zone.zoneType === 'hero'
-  const isGrid = zone.zoneType === 'grid'
-  const isList = zone.zoneType === 'list' || zone.zoneType === 'carousel' || zone.zoneType === 'menu'
+  // Le placement libre l'emporte sur le type de la zone : c'est lui qui décide
+  // où vont les produits. Le type ne sert plus qu'au titre et au fond.
+  const isFree = !isBanner && isFreeZone(zone)
+  const isGrid = !isFree && zone.zoneType === 'grid'
+  const isList = !isFree && (zone.zoneType === 'list' || zone.zoneType === 'carousel' || zone.zoneType === 'menu')
 
   // Same "Taille de police" zone style control the title below already uses
   // (base 12px = 1x) — also drives the product cards' own size (image, name,
@@ -440,6 +476,17 @@ export default function ZoneRenderer({ zone, theme, settings, seamEdges }) {
   let content
   if (isBanner) {
     content = <BannerContent zone={zone} theme={theme} settings={settings} accent={accent} fontSize={zStyle.fontSize} badgeType={zStyle.badgeType} zoneShowPrice={zoneShowPrice} />
+  } else if (isFree) {
+    content = (
+      <div className="flex h-full flex-col">
+        <ZoneTitle name={zone.name} accent={accent} extraPrice={zone.backgroundStyle?.extraPrice} badgeType={zStyle.badgeType} theme={theme} banner={zone.backgroundStyle?.banner} fontSize={zStyle.fontSize} />
+        <div className="relative min-h-0 flex-1">
+          <div className="flex h-full flex-col" style={contentBoxStyle}>
+            <FreeContent zone={zone} theme={theme} scale={cardScale} badgeType={zStyle.badgeType} priceVariant={priceVariant} showPrice={zoneShowPrice} />
+          </div>
+        </div>
+      </div>
+    )
   } else if (isGrid) {
     content = (
       <div className="flex h-full flex-col">

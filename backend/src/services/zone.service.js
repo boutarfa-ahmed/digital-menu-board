@@ -11,6 +11,7 @@ const {
   CARD_SLOT_TYPES,
   REQUIRES_GRID_CONFIG,
   CONTENT_ZONE_TYPES,
+  ZONE_LAYOUT_MODES,
   BADGE_STYLES,
   BADGE_POSITIONS,
   validateGridConfig,
@@ -21,6 +22,7 @@ const {
   validateCardLayouts,
   validateElementsConfig,
   validateZoneFields,
+  validateZoneItems,
 } = require('../shared/menuSchema');
 
 class ZoneValidationError extends Error {
@@ -62,6 +64,14 @@ function mergeSettings(existing, incoming) {
 }
 // Two axis-aligned rectangles overlap only if they intersect on both axes.
 // Touching edges (a.x + a.w === b.x) is allowed.
+// Boîte du produit en placement libre. Les quatre champs vont toujours
+// ensemble : soit la boîte complète, soit null partout — la validation refuse
+// déjà une boîte à moitié remplie.
+function freeBoxData(it) {
+  const n = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+  return { x: n(it.x), y: n(it.y), w: n(it.w), h: n(it.h) };
+}
+
 function zonesOverlap(a, b) {
   return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 }
@@ -95,6 +105,12 @@ function parseZone(zone) {
       index: zi.index,
       order: zi.order,
       qty: zi.qty,
+      // Boîte du produit en placement libre (null tant que la zone est en
+      // "auto" ou que le produit n'a jamais été déplacé).
+      x: zi.x,
+      y: zi.y,
+      w: zi.w,
+      h: zi.h,
       item: zi.item,
     })),
   };
@@ -115,6 +131,7 @@ function zoneDataFromBody(b) {
     zoneType: b.zoneType || 'menu',
     gridConfig: serializeJson(b.gridConfig, '{}'),
     cardTemplate: b.cardTemplate || 'default',
+    layoutMode: ZONE_LAYOUT_MODES.includes(b.layoutMode) ? b.layoutMode : 'auto',
     backgroundStyle: serializeJson(b.backgroundStyle, null),
     x: b.x ?? 0,
     y: b.y ?? 0,
@@ -260,6 +277,7 @@ async function replaceLayout(prisma, screenId, input) {
               index: it.index ?? i,
               order: it.order ?? i,
               qty: it.qty !== undefined ? Number(it.qty) || null : null,
+              ...freeBoxData(it),
             })),
           });
         }
@@ -289,6 +307,11 @@ function validatePublishableLayout(layout) {
     if (CONTENT_ZONE_TYPES.includes(zone.zoneType) && items.length === 0) {
       errors.push(`La zone ${label} est vide : ajoutez au moins un produit.`);
     }
+
+    // Placement libre : la capacité rows x cols et la notion de « hors grille »
+    // ne veulent plus rien dire — chaque produit porte sa propre boîte. Une
+    // zone vide reste bloquante (vérifié juste au-dessus).
+    if (zone.layoutMode === 'free') continue;
 
     if (REQUIRES_GRID_CONFIG.includes(zone.zoneType)) {
       const rowsOk = gc && Number.isInteger(gc.rows) && gc.rows >= 1;
@@ -353,6 +376,8 @@ module.exports = {
   parseZone,
   parseZoneLayout,
   zoneDataFromBody,
+  freeBoxData,
+  validateZoneItems,
   replaceLayout,
   setLayoutDraft,
   validatePublishableLayout,

@@ -106,6 +106,12 @@ model Zone {
   name            String?  // optional label
   zoneType        String   @default("menu") // "menu" | "list" | "carousel" | "banner" | "highlight"
   gridConfig      String   @default("{}") // JSON: { rows, cols } for the zone's inner grid
+  // How products are placed inside the zone. "auto" = the zone's own type
+  // decides (grid zones fill rows x cols, list/carousel stack in order) —
+  // the only behaviour that existed before this column. "free" = every
+  // ZoneItem carries its own x/y/w/h box, so a zone can hold an asymmetric
+  // composition (one large product beside three small stacked ones).
+  layoutMode      String   @default("auto") // "auto" | "free"
   cardTemplate    String   @default("default") // "default" | "compact" | "large" | "minimal"
   backgroundStyle String?  // optional JSON/CSS background (color, image)
   badgeConfig     String?  // JSON: { text, price, style, position } — zone badge/label overlay (T7.3)
@@ -160,6 +166,13 @@ model ZoneItem {
   row       Int?      // row position inside a grid zone
   col       Int?      // column position inside a grid zone
   index     Int?      // sequential position for list/carousel zones
+  // Free placement (zone.layoutMode = "free"): the product's own box as a
+  // percentage of the zone. Null on every row written before free placement
+  // existed, and ignored while the zone stays in "auto".
+  x         Float?
+  y         Float?
+  w         Float?
+  h         Float?
   order     Int       @default(0) // fallback ordering
   qty       Int?      // display multiplier for list-row-price-qty template (e.g. "5X")
   createdAt DateTime  @default(now())

@@ -66,6 +66,22 @@ const ZONE_TYPE_LABELS = {
 // Zones qui placent des produits dans une grille interne (rows x cols).
 const REQUIRES_GRID_CONFIG = ['grid', 'list', 'carousel']
 
+// Comment les produits se placent DANS la zone.
+//   auto — le type de la zone décide : une grille remplit ses rows x cols, une
+//          liste empile dans l'ordre. C'est le seul comportement qui existait
+//          avant, et le défaut : une zone déjà enregistrée ne bouge pas.
+//   free — chaque produit porte sa propre boîte x/y/w/h en % de la zone, donc
+//          la zone peut tenir une composition asymétrique (un gros produit à
+//          gauche, trois petits empilés à droite).
+//
+// Le plan parlait aussi d'un mode « flow » : il existe déjà, ce sont les types
+// de zone list / carousel. En ajouter un synonyme n'aurait rien débloqué.
+const ZONE_LAYOUT_MODES = ['auto', 'free']
+const ZONE_LAYOUT_MODE_LABELS = {
+  auto: 'Automatique (grille / liste)',
+  free: 'Libre — chaque produit a sa place',
+}
+
 // Zones censées contenir des produits : une zone de contenu vide bloque la
 // publication (voir validatePublishableLayout côté backend).
 const CONTENT_ZONE_TYPES = ['menu', 'grid', 'list', 'carousel']
@@ -224,6 +240,14 @@ const BACKGROUND_ANGLE_MAX = 180
 const IMAGE_URL_MAX = 2048
 const CONTENT_BOX_MIN = 10
 const EL_IMAGE_MAX_PX = 1000
+
+// Boîte d'un produit en placement libre, en % de la zone. Elle peut mordre un
+// peu au-delà des bords (une photo détourée qui dépasse fait partie du style
+// des boards), mais pas au point de sortir de l'écran.
+const FREE_ITEM_MIN = 2
+const FREE_ITEM_MAX = 150
+const FREE_ITEM_POS_MIN = -25
+const FREE_ITEM_POS_MAX = 125
 // Marge intérieure d'un élément dessiné, en % de sa boîte. Plafonnée bien
 // avant 50% : à 50% le dessin n'a plus aucune place et disparaît.
 const EL_PADDING_MAX = 45
@@ -449,9 +473,17 @@ function presetCardLayout(key, zone) {
 // une cellule de la grille, ou une ligne de la liste. Sert de repère aux
 // tailles de police ET de format à la zone de dessin, pour que l'éditeur
 // montre exactement les proportions de l'écran.
-function cardCellSize(zone) {
+function cardCellSize(zone, zoneItem = null) {
   const zoneW = ((zone?.w || 1) / GRID) * DESIGN_W
   const zoneH = ((zone?.h || 1) / GRID) * DESIGN_H
+  // Placement libre : la carte occupe la boîte du produit, pas une cellule de
+  // grille. Sans ce cas, l'éditeur dessinerait au format d'une cellule qui
+  // n'existe pas et les tailles de police seraient prises dans le mauvais
+  // repère.
+  if (isFreeZone(zone)) {
+    const box = zoneItem ? freeItemBox(zoneItem) : { w: 30, h: 30 }
+    return { w: Math.round((zoneW * box.w) / 100), h: Math.round((zoneH * box.h) / 100) }
+  }
   if (zone?.zoneType === 'grid') {
     const rows = zone?.gridConfig?.rows || 1
     const cols = zone?.gridConfig?.cols || 1
@@ -656,6 +688,44 @@ function elementVisualStyle(el) {
     maskSize: size,
   }
   return { frame: frame, mask: mask, fit: fit === 'contain' ? 'contain' : 'fill' }
+}
+
+
+// ---------------------------------------------------------------------------
+// PLACEMENT LIBRE
+// ---------------------------------------------------------------------------
+
+function isFreeZone(zone) {
+  return zone?.layoutMode === 'free'
+}
+
+// Un produit fraîchement posé en mode libre : une tuile qui tient dans la zone,
+// décalée à chaque fois pour ne pas empiler tous les produits au même endroit.
+function defaultFreeItemBox(index = 0) {
+  const cols = 3
+  const w = 30
+  const h = 30
+  const col = index % cols
+  const row = Math.floor(index / cols) % 3
+  return {
+    x: clampPct(4 + col * 32, 0, 100 - w),
+    y: clampPct(4 + row * 32, 0, 100 - h),
+    w,
+    h,
+  }
+}
+
+// La boîte d'un produit, avec un repli pour les lignes écrites avant que le
+// placement libre existe (x/y/w/h à null) : elles retombent sur la tuile par
+// défaut au lieu de rendre une carte de taille nulle.
+function freeItemBox(zoneItem, index = 0) {
+  const n = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null)
+  const x = n(zoneItem?.x)
+  const y = n(zoneItem?.y)
+  const w = n(zoneItem?.w)
+  const h = n(zoneItem?.h)
+  if (x === null || y === null || w === null || h === null) return defaultFreeItemBox(index)
+  return { x, y, w, h }
 }
 
 
@@ -1075,6 +1145,42 @@ function validateElementsConfig(elements) {
   return errors
 }
 
+// Boîtes des produits d'une zone en placement libre. En mode « auto » les
+// champs sont ignorés : une zone qui repasse en grille garde ses boîtes en
+// base sans qu'elles aient à être valides.
+function validateZoneItems(items, layoutMode) {
+  if (layoutMode !== 'free') return []
+  if (items === undefined || items === null) return []
+  if (!Array.isArray(items)) return ['items must be an array']
+  const errors = []
+  items.forEach((it, i) => {
+    const p = `items[${i}]`
+    if (!it || typeof it !== 'object' || Array.isArray(it)) {
+      errors.push(`${p} must be an object`)
+      return
+    }
+    // Une boîte entièrement absente est tolérée : le rendu retombe sur la
+    // tuile par défaut. Une boîte à moitié remplie, elle, est une erreur.
+    const given = ['x', 'y', 'w', 'h'].filter((f) => it[f] !== undefined && it[f] !== null)
+    if (given.length === 0) return
+    if (given.length < 4) {
+      errors.push(`${p} needs x, y, w and h together in a free zone`)
+      return
+    }
+    for (const f of ['x', 'y']) {
+      if (!isNum(it[f]) || it[f] < FREE_ITEM_POS_MIN || it[f] > FREE_ITEM_POS_MAX) {
+        errors.push(`${p}.${f} must be a number between ${FREE_ITEM_POS_MIN} and ${FREE_ITEM_POS_MAX}`)
+      }
+    }
+    for (const f of ['w', 'h']) {
+      if (!isNum(it[f]) || it[f] < FREE_ITEM_MIN || it[f] > FREE_ITEM_MAX) {
+        errors.push(`${p}.${f} must be a number between ${FREE_ITEM_MIN} and ${FREE_ITEM_MAX}`)
+      }
+    }
+  })
+  return errors
+}
+
 // Validation d'une zone complète (hors chevauchement avec ses voisines, qui se
 // vérifie au niveau du layout, pas de la zone seule).
 function validateZoneFields(body) {
@@ -1085,6 +1191,9 @@ function validateZoneFields(body) {
   }
   if (b.cardTemplate !== undefined && !CARD_TEMPLATES.includes(b.cardTemplate)) {
     errors.push(`cardTemplate must be one of ${CARD_TEMPLATES.join(', ')}`)
+  }
+  if (b.layoutMode !== undefined && !ZONE_LAYOUT_MODES.includes(b.layoutMode)) {
+    errors.push(`layoutMode must be one of ${ZONE_LAYOUT_MODES.join(', ')}`)
   }
   for (const f of ['x', 'y', 'w', 'h', 'order']) {
     if (b[f] !== undefined && (typeof b[f] !== 'number' || !Number.isFinite(b[f]))) {
@@ -1114,6 +1223,9 @@ function validateZoneFields(body) {
   if (b.backgroundStyle !== undefined) {
     errors.push(...validateBackgroundStyle(b.backgroundStyle))
   }
+  if (b.items !== undefined) {
+    errors.push(...validateZoneItems(b.items, b.layoutMode))
+  }
   return errors
 }
 
@@ -1124,6 +1236,8 @@ module.exports = {
   ZONE_TYPES,
   ZONE_TYPE_LABELS,
   REQUIRES_GRID_CONFIG,
+  ZONE_LAYOUT_MODES,
+  ZONE_LAYOUT_MODE_LABELS,
   CONTENT_ZONE_TYPES,
   CARD_TEMPLATES,
   CARD_TEMPLATE_LABELS,
@@ -1163,6 +1277,10 @@ module.exports = {
   IMAGE_URL_MAX,
   CONTENT_BOX_MIN,
   EL_IMAGE_MAX_PX,
+  FREE_ITEM_MIN,
+  FREE_ITEM_MAX,
+  FREE_ITEM_POS_MIN,
+  FREE_ITEM_POS_MAX,
   EL_PADDING_MAX,
   HEX_OR_CSS_COLOR,
   STYLE_DEFAULTS,
@@ -1186,6 +1304,9 @@ module.exports = {
   sanitizeBackgroundStyle,
   cssUrl,
   elementVisualStyle,
+  isFreeZone,
+  defaultFreeItemBox,
+  freeItemBox,
   validateGridConfig,
   validateBadgeConfig,
   validateBackgroundConfig,
@@ -1193,5 +1314,6 @@ module.exports = {
   validateCardLayout,
   validateCardLayouts,
   validateElementsConfig,
+  validateZoneItems,
   validateZoneFields,
 };

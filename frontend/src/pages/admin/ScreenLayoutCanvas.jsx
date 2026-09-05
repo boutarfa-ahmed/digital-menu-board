@@ -16,6 +16,13 @@ import CardTemplatePreview from './canvas/CardTemplatePreview'
 import StyledZoneContent from './canvas/StyledZoneContent'
 import PresetThumb from './canvas/PresetThumb'
 import CardDesigner from './canvas/CardDesigner'
+import FreeItemsLayer from './canvas/FreeItemsLayer'
+import {
+  isFreeZone,
+  defaultFreeItemBox,
+  ZONE_LAYOUT_MODES,
+  ZONE_LAYOUT_MODE_LABELS,
+} from '../../shared/menuSchema'
 import ElementVisual from './canvas/ElementVisual'
 import {
   GRID,
@@ -690,7 +697,26 @@ function ScreenLayoutCanvas() {
       col: it.col,
       index: it.index,
       order: it.order,
+      x: it.x,
+      y: it.y,
+      w: it.w,
+      h: it.h,
     }))
+
+    // Placement libre : pas de case à trouver, le produit arrive sur une tuile
+    // décalée des précédentes et se déplace ensuite à la souris.
+    if (isFreeZone(zone)) {
+      items.push({
+        itemId,
+        row: null,
+        col: null,
+        index: items.length,
+        order: items.length,
+        ...defaultFreeItemBox(items.length),
+      })
+      await putZoneItems(zone, items)
+      return
+    }
 
     if (targetRow !== undefined) {
       items.push({ itemId, row: targetRow, col: targetCol, index: null, order: items.length })
@@ -1720,7 +1746,28 @@ function ScreenLayoutCanvas() {
                       </Badge>
                     </div>
 
-                    {REQUIRES_GRID.includes(selected.zoneType) && (
+                    <div>
+                      <Label htmlFor="zone-cfg-layoutmode">Disposition des produits</Label>
+                      <select
+                        id="zone-cfg-layoutmode"
+                        value={selected.layoutMode || 'auto'}
+                        onChange={(e) => patchZone(selected.id, { layoutMode: e.target.value })}
+                        className="w-full rounded-lg border border-gray-300 bg-transparent px-3 py-2.5 text-sm text-gray-800 outline-none focus:border-brand-300 focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:text-white/90"
+                      >
+                        {ZONE_LAYOUT_MODES.map((m) => (
+                          <option key={m} value={m}>
+                            {ZONE_LAYOUT_MODE_LABELS[m] || m}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                        {isFreeZone(selected)
+                          ? 'Chaque produit se déplace et se redimensionne à la souris sur le tableau.'
+                          : 'Les produits remplissent la grille ou la liste de la zone.'}
+                      </p>
+                    </div>
+
+                    {!isFreeZone(selected) && REQUIRES_GRID.includes(selected.zoneType) && (
                       <div className="grid grid-cols-2 gap-4">
                         <div>
                           <Label htmlFor="zone-cfg-rows">Lignes</Label>
@@ -2967,8 +3014,9 @@ function ScreenLayoutCanvas() {
                 const clash = active
                   ? (layout.zones || []).some((z) => z.id !== zone.id && overlaps(rect, z))
                   : false
-                const isGrid = zone.zoneType === 'grid'
-                const isList = zone.zoneType === 'list' || zone.zoneType === 'carousel'
+                const isFree = isFreeZone(zone)
+                const isGrid = !isFree && zone.zoneType === 'grid'
+                const isList = !isFree && (zone.zoneType === 'list' || zone.zoneType === 'carousel')
                 const rows = zone.gridConfig?.rows || 1
                 const cols = zone.gridConfig?.cols || 1
 
@@ -2988,6 +3036,7 @@ function ScreenLayoutCanvas() {
                 const zoneEmpty =
                   CONTENT_ZONE_TYPES.includes(zone.zoneType) && (zone.items?.length ?? 0) === 0
                 const zoneOverflow =
+                  !isFree &&
                   REQUIRES_GRID.includes(zone.zoneType) &&
                   ((zone.items?.length ?? 0) > rows * cols ||
                     (zone.zoneType === 'grid' &&
@@ -3186,7 +3235,18 @@ function ScreenLayoutCanvas() {
                       className="relative min-h-0 flex-1"
                     >
                     <div className="absolute flex flex-col" style={contentBoxStyle}>
-                    {(isGrid || isList) && (zone.items?.length ?? 0) > 0 ? (
+                    {isFree ? (
+                      <FreeItemsLayer
+                        zone={zone}
+                        isAdmin={isAdmin}
+                        accent={zAccent}
+                        text={zText}
+                        showPrice={zShowPrice}
+                        onCommit={(items) => putZoneItems(zone, items)}
+                        onRemove={(itemId) => removeZoneItem(zone.id, itemId)}
+                        onEditCard={(zi) => setCardDesigner({ zoneId: zone.id, itemId: zi.itemId })}
+                      />
+                    ) : (isGrid || isList) && (zone.items?.length ?? 0) > 0 ? (
                       isGrid ? (
                         <div
                           className="mt-1 grid min-h-0 flex-1 gap-0.5"

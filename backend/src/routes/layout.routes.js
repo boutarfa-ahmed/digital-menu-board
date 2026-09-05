@@ -10,6 +10,8 @@ const {
   parseZone,
   zoneDataFromBody,
   setLayoutDraft,
+  freeBoxData,
+  validateZoneItems,
 } = require('../services/zone.service');
 const { broadcast } = require('../services/broadcast');
 
@@ -85,6 +87,9 @@ router.put('/zones/:id', auth, requireRole('admin'), async (req, res, next) => {
     const zone = await prisma.zone.findUnique({ where: { id } });
     if (!zone) return res.status(404).json({ error: 'Zone not found' });
 
+    const boxErrors = validateZoneItems(items, zone.layoutMode);
+    if (boxErrors.length > 0) return res.status(400).json({ error: boxErrors.join('; ') });
+
     const x = b.x ?? zone.x;
     const y = b.y ?? zone.y;
     const w = b.w ?? zone.w;
@@ -116,6 +121,9 @@ router.delete('/zones/:id', auth, requireRole('admin'), async (req, res, next) =
   try {
     const zone = await prisma.zone.findUnique({ where: { id } });
     if (!zone) return res.status(404).json({ error: 'Zone not found' });
+
+    const boxErrors = validateZoneItems(items, zone.layoutMode);
+    if (boxErrors.length > 0) return res.status(400).json({ error: boxErrors.join('; ') });
     await prisma.zone.delete({ where: { id } });
     await setLayoutDraft(prisma, zone.layoutId);
     emitLayoutUpdated(await screenIdOfLayout(zone.layoutId));
@@ -126,7 +134,9 @@ router.delete('/zones/:id', auth, requireRole('admin'), async (req, res, next) =
 });
 
 // PUT /api/zones/:id/items — bulk assign/reorder ZoneItems in a zone
-// body: { items: [{ itemId, row?, col?, index?, order? }, ...] }
+// body: { items: [{ itemId, row?, col?, index?, order?, x?, y?, w?, h? }, ...] }
+// x/y/w/h = the product's own box in a free-placement zone (percentages of the
+// zone); ignored while the zone stays in "auto".
 router.put('/zones/:id/items', auth, requireRole('admin'), async (req, res, next) => {
   const id = parseInt(req.params.id, 10);
   const items = req.body?.items;
@@ -141,6 +151,9 @@ router.put('/zones/:id/items', auth, requireRole('admin'), async (req, res, next
     const zone = await prisma.zone.findUnique({ where: { id } });
     if (!zone) return res.status(404).json({ error: 'Zone not found' });
 
+    const boxErrors = validateZoneItems(items, zone.layoutMode);
+    if (boxErrors.length > 0) return res.status(400).json({ error: boxErrors.join('; ') });
+
     const ops = [prisma.zoneItem.deleteMany({ where: { zoneId: id } })];
     if (items.length > 0) {
       ops.push(
@@ -153,6 +166,7 @@ router.put('/zones/:id/items', auth, requireRole('admin'), async (req, res, next
             index: it.index ?? i,
             order: it.order ?? i,
             qty: it.qty !== undefined ? Number(it.qty) || null : null,
+            ...freeBoxData(it),
           })),
         })
       );
