@@ -16,7 +16,16 @@ import { badgeStyleOf, currencyOf, badgeTypeOf } from '../../theme/designTokens'
 // Dessin de carte appliqué à un produit : sa propre surcharge
 // (backgroundStyle.cardLayouts[itemId]) sinon celui de la zone
 // (backgroundStyle.cardLayout). Mêmes règles que le builder — schéma partagé.
-import { ownCardLayout, resolveCardLayout } from '../../shared/menuSchema'
+import {
+  ownCardLayout,
+  resolveCardLayout,
+  isFreeZone,
+  freeItemBox,
+  resolveZoneLayout,
+  zoneStyleValue,
+  ZONE_PAD_SEAM,
+  decorationStyle,
+} from '../../shared/menuSchema'
 
 function bannerSizeOf(fontSize) {
   if (!fontSize) return undefined
@@ -25,16 +34,18 @@ function bannerSizeOf(fontSize) {
   return 'lg'
 }
 
-function ZoneTitle({ name, accent, banner, extraPrice, badgeType, theme, fontSize }) {
+function ZoneTitle({ name, accent, banner, extraPrice, badgeType, theme, fontSize, titleGap }) {
   if (!name) return null
+  // mb-6 (24px) était figé : c'est maintenant le réglage « Espace sous le titre ».
+  const gapStyle = { marginBottom: titleGap }
   const scale = fontSize ? fontSize / 12 : 1
   const showExtra = Number.isFinite(extraPrice) && extraPrice > 0
 
   if (banner) {
     const title = <CategoryBanner label={name} accent={accent} size={bannerSizeOf(fontSize)} />
-    if (!showExtra) return <div className="mb-6">{title}</div>
+    if (!showExtra) return <div style={gapStyle}>{title}</div>
     return (
-      <div className="mb-6 flex items-center gap-3">
+      <div className="flex items-center gap-3" style={gapStyle}>
         {title}
         <PriceBadge price={extraPrice} size="sm" badgeStyle={badgeStyleOf(theme)} currency={currencyOf(theme)} badgeType={badgeTypeOf(badgeType)} />
       </div>
@@ -58,7 +69,7 @@ function ZoneTitle({ name, accent, banner, extraPrice, badgeType, theme, fontSiz
 
   if (showExtra) {
     return (
-      <div className="mb-6 flex items-center gap-3">
+      <div className="flex items-center gap-3" style={gapStyle}>
         {title}
         <PriceBadge price={extraPrice} size="sm" badgeStyle={badgeStyleOf(theme)} currency={currencyOf(theme)} badgeType={badgeTypeOf(badgeType)} />
       </div>
@@ -66,7 +77,7 @@ function ZoneTitle({ name, accent, banner, extraPrice, badgeType, theme, fontSiz
   }
   const ruleHeight = Math.max(2, Math.round(3 * scale))
   return (
-    <div className="mb-6 flex items-center gap-4">
+    <div className="flex items-center gap-4" style={gapStyle}>
       <span className="flex-1 rounded-full" style={{ height: ruleHeight, background: accent, opacity: 0.35 }} />
       {title}
       <span className="flex-1 rounded-full" style={{ height: ruleHeight, background: accent, opacity: 0.35 }} />
@@ -137,15 +148,94 @@ function GridImageCell({ zi, template, scale = 1, theme, showPrice = false, badg
   )
 }
 
-function GridContent({ zone, theme, scale = 1, badgeType, priceVariant, showPrice }) {
+// Une carte produit telle que la zone la rend, quel que soit le placement :
+// dans une cellule de grille ou dans sa propre boîte en placement libre. Le
+// dessin propre au produit gagne, sinon le template de la zone décide.
+// Extrait de GridContent — le placement libre passe par exactement ce chemin
+// plutôt que d'en dupliquer un deuxième.
+function itemCard({ zone, zi, theme, scale = 1, badgeType, priceVariant, showPrice, mirror = false }) {
+  const template = zone.cardTemplate
+  const priceProps = { theme, badgeType, variant: priceVariant }
+  const own = ownCardLayout(zone, zi.itemId)
+
+  if (template === 'custom' || own)
+    return (
+      <CustomCard
+        item={zi.item}
+        layout={own || resolveCardLayout(zone, zi.itemId)}
+        badgeConfig={zone.badgeConfig}
+        qty={zi.qty != null ? zi.qty : null}
+        {...priceProps}
+      />
+    )
+  if (template === 'icon-label')
+    return <IconLabelCard item={zi.item} scale={scale} showPrice={showPrice === true} {...priceProps} />
+  if (template === 'text-only')
+    return <TextOnlyCard item={zi.item} scale={scale} showPrice={showPrice === true} {...priceProps} />
+  if (template === 'image-title-desc-price')
+    return (
+      <ImageTitleDescPriceCard
+        item={zi.item}
+        theme={theme}
+        showPrice={showPrice !== false}
+        template="default"
+        zoneSize="sm"
+        mirror={mirror}
+        scale={scale}
+        badgeType={badgeType}
+        variant={priceVariant}
+      />
+    )
+  return (
+    <GridImageCell
+      zi={zi}
+      template={template}
+      scale={scale}
+      showPrice={showPrice === true}
+      {...priceProps}
+    />
+  )
+}
+
+// Placement libre : chaque produit occupe sa propre boîte en % de la zone, au
+// lieu d'une cellule d'une grille régulière. C'est ce qui permet une
+// composition asymétrique — un gros produit à gauche, trois petits à droite.
+function FreeContent({ zone, theme, scale = 1, badgeType, priceVariant, showPrice }) {
+  const items = zone.items || []
+  if (items.length === 0) {
+    return <p className="text-center font-menu-body text-sm text-menu-text-muted">Vide</p>
+  }
+  return (
+    <div className="relative min-h-0 flex-1">
+      {items.map((zi, i) => {
+        const box = freeItemBox(zi, i)
+        return (
+          <div
+            key={zi.itemId}
+            className="absolute"
+            style={{
+              left: `${box.x}%`,
+              top: `${box.y}%`,
+              width: `${box.w}%`,
+              height: `${box.h}%`,
+              // Même repère que la cellule de grille : la carte mesure sa
+              // largeur/hauteur par rapport à SA boîte, donc un dessin fait
+              // dans l'éditeur tombe juste.
+              containerType: 'size',
+            }}
+          >
+            {itemCard({ zone, zi, theme, scale, badgeType, priceVariant, showPrice })}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function GridContent({ zone, theme, scale = 1, badgeType, priceVariant, showPrice, gap }) {
   const rows = zone.gridConfig?.rows || 1
   const cols = zone.gridConfig?.cols || 1
   const items = zone.items || []
-  const template = zone.cardTemplate
-  const isIconLabel = template === 'icon-label'
-  const isTextOnly = template === 'text-only'
-  const isImageDetail = template === 'image-title-desc-price'
-  const isCustom = template === 'custom'
   const cells = Array.from({ length: rows * cols }, (_, i) => {
     const r = Math.floor(i / cols)
     const c = i % cols
@@ -155,59 +245,15 @@ function GridContent({ zone, theme, scale = 1, badgeType, priceVariant, showPric
   // "Afficher le prix" (zone) : les cartes image+details montrent le prix par
   // defaut (showPrice !== false), les autres templates ne le montrent que si
   // la case est explicitement cochee (showPrice === true).
-  const priceProps = { theme, badgeType, variant: priceVariant }
-
-  const cellContent = (zi, i) => {
-    // Un produit qui a son propre dessin (icône stylo) rend une carte perso
-    // même dans une zone restée en "Compact" / "Par défaut" : seul ce produit
-    // change, ses voisins gardent le template de la zone.
-    const own = ownCardLayout(zone, zi.itemId)
-    if (isCustom || own)
-      return (
-        <CustomCard
-          item={zi.item}
-          layout={own || resolveCardLayout(zone, zi.itemId)}
-          badgeConfig={zone.badgeConfig}
-          qty={zi.qty != null ? zi.qty : null}
-          {...priceProps}
-        />
-      )
-    if (isIconLabel)
-      return <IconLabelCard item={zi.item} scale={scale} showPrice={showPrice === true} {...priceProps} />
-    if (isTextOnly)
-      return <TextOnlyCard item={zi.item} scale={scale} showPrice={showPrice === true} {...priceProps} />
-    if (isImageDetail) {
-      const c = i % cols
-      const mirror = c >= Math.ceil(cols / 2)
-      return (
-        <ImageTitleDescPriceCard
-          item={zi.item}
-          theme={theme}
-          showPrice={showPrice !== false}
-          template="default"
-          zoneSize="sm"
-          mirror={mirror}
-          scale={scale}
-          badgeType={badgeType}
-          variant={priceVariant}
-        />
-      )
-    }
-    return (
-      <GridImageCell
-        zi={zi}
-        template={template}
-        scale={scale}
-        showPrice={showPrice === true}
-        {...priceProps}
-      />
-    )
-  }
+  const cellContent = (zi, i) =>
+    itemCard({ zone, zi, theme, scale, badgeType, priceVariant, showPrice, mirror: (i % cols) >= Math.ceil(cols / 2) })
 
   return (
     <div
-      className="grid min-h-0 flex-1 gap-5"
+      className="grid min-h-0 flex-1"
       style={{
+        // gap-5 (20px) était figé : c'est le réglage « Espace entre produits ».
+        gap,
         // minmax(0, 1fr), not a bare 1fr: a bare 1fr track still grows past an
         // even split to fit its content's min-content size, which is exactly
         // how a large "Taille de police" zone size used to push a product
@@ -237,7 +283,7 @@ function GridContent({ zone, theme, scale = 1, badgeType, priceVariant, showPric
   )
 }
 
-function ListContent({ zone, theme, settings, scale = 1, badgeType, priceVariant, zoneShowPrice }) {
+function ListContent({ zone, theme, settings, scale = 1, badgeType, priceVariant, zoneShowPrice, gap }) {
   const items = zone.items || []
   // Le choix de la zone ("Afficher le prix") l'emporte sur le reglage global
   // de l'ecran ; sans choix explicite on garde le reglage global.
@@ -315,9 +361,8 @@ function ListContent({ zone, theme, settings, scale = 1, badgeType, priceVariant
 
   return (
     <div
-      className={`flex min-h-0 flex-1 flex-col justify-center overflow-hidden ${
-        isTextOnly || isImageDetail || anyCustom ? 'gap-5' : ''
-      }`}
+      className="flex min-h-0 flex-1 flex-col justify-center overflow-hidden"
+      style={{ gap: isTextOnly || isImageDetail || anyCustom ? gap : undefined }}
     >
       {items.length === 0 ? (
         <p className="text-center font-menu-body text-sm text-menu-text-muted">Vide</p>
@@ -372,12 +417,182 @@ function BannerContent({ zone, theme, settings, accent, fontSize, badgeType, zon
   )
 }
 
+// Le contenu produits d'une zone, sans rien autour : c'est ce que le slot
+// `products` d'une disposition de zone met dans sa boîte, et c'est aussi ce
+// que la disposition d'origine met sous le titre. Un seul endroit décide quel
+// répéteur s'applique.
+function ZoneProducts({ zone, theme, settings, scale, badgeType, priceVariant, zoneShowPrice, kind, gap }) {
+  if (kind === 'free')
+    return <FreeContent zone={zone} theme={theme} scale={scale} badgeType={badgeType} priceVariant={priceVariant} showPrice={zoneShowPrice} />
+  if (kind === 'grid')
+    return <GridContent zone={zone} theme={theme} scale={scale} badgeType={badgeType} priceVariant={priceVariant} showPrice={zoneShowPrice} gap={gap} />
+  if (kind === 'list')
+    return <ListContent zone={zone} theme={theme} settings={settings} scale={scale} badgeType={badgeType} priceVariant={priceVariant} zoneShowPrice={zoneShowPrice} gap={gap} />
+  // highlight / type inconnu : le premier produit en carte image + détails
+  return zone.items?.[0] ? (
+    <ImageTitleDescPriceCard
+      item={zone.items[0].item}
+      theme={theme}
+      showPrice={zoneShowPrice === true}
+      template={zone.cardTemplate}
+      badgeType={badgeType}
+      variant={priceVariant}
+    />
+  ) : null
+}
+
+// La zone comme conteneur de slots : mêmes règles que la carte (x/y/w/h en %
+// de la zone), un cran plus haut. Le slot `products` porte le répéteur, les
+// autres sont le titre et le décor. Utilisé seulement quand la zone porte une
+// disposition ; sinon on garde l'agencement d'origine plus bas.
+function ZoneSlotsContent({ layout, zone, theme, settings, accent, scale, badgeType, priceVariant, zoneShowPrice, zStyle, gap }) {
+  return (
+    <div className="relative h-full w-full">
+      {layout.slots.map((slot) => {
+        if (slot.visible === false) return null
+        const box = {
+          position: 'absolute',
+          left: `${slot.x}%`,
+          top: `${slot.y}%`,
+          width: `${slot.w}%`,
+          height: `${slot.h}%`,
+          zIndex: slot.zIndex ?? 1,
+          transform: slot.rotation ? `rotate(${slot.rotation}deg)` : undefined,
+        }
+
+        if (slot.type === 'products') {
+          return (
+            <div key={slot.id} style={box} className="flex flex-col">
+              <ZoneProducts
+                zone={zone}
+                theme={theme}
+                settings={settings}
+                scale={scale}
+                badgeType={badgeType}
+                priceVariant={priceVariant}
+                zoneShowPrice={zoneShowPrice}
+                kind={productKind(zone)}
+                gap={gap}
+              />
+            </div>
+          )
+        }
+
+        if (slot.type === 'title') {
+          if (!zone.name) return null
+          const style = slot.titleStyle || 'divider'
+          if (style === 'plain') {
+            return (
+              <div
+                key={slot.id}
+                style={box}
+                className={`flex ${slot.valign === 'start' ? 'items-start' : slot.valign === 'end' ? 'items-end' : 'items-center'} ${
+                  slot.align === 'right' ? 'justify-end' : slot.align === 'center' ? 'justify-center' : 'justify-start'
+                }`}
+              >
+                <h2
+                  className="leading-tight font-menu-header tracking-wide"
+                  style={{
+                    color: slot.color || accent,
+                    fontSize: slot.fontSize || 34,
+                    fontWeight: slot.bold ? 700 : 400,
+                    fontStyle: slot.italic ? 'italic' : undefined,
+                    textTransform: slot.uppercase ? 'uppercase' : undefined,
+                    fontFamily: slot.fontFamily || undefined,
+                    textAlign: slot.align || 'left',
+                  }}
+                >
+                  {zone.name}
+                </h2>
+              </div>
+            )
+          }
+          // divider / banner : le traitement historique, réutilisé tel quel.
+          return (
+            <div key={slot.id} style={box} className="flex flex-col justify-center">
+              <ZoneTitle
+                name={zone.name}
+                accent={accent}
+                extraPrice={zStyle.extraPrice}
+                badgeType={zStyle.badgeType}
+                theme={theme}
+                banner={style === 'banner'}
+                fontSize={zStyle.fontSize}
+                titleGap={0}
+              />
+            </div>
+          )
+        }
+
+        if (slot.type === 'shape') {
+          return (
+            <div key={slot.id} style={box}>
+              <div
+                className="h-full w-full"
+                style={{
+                  background: slot.bg || accent,
+                  borderRadius: slot.radius || 0,
+                  opacity: slot.opacity ?? 1,
+                }}
+              />
+            </div>
+          )
+        }
+
+        if (slot.type === 'asset') {
+          if (!slot.imageUrl) return null
+          return (
+            <div key={slot.id} style={box}>
+              <img src={slot.imageUrl} alt="" className="h-full w-full" style={{ objectFit: slot.fit || 'contain' }} />
+            </div>
+          )
+        }
+
+        // 'text'
+        if (!slot.text) return null
+        return (
+          <div
+            key={slot.id}
+            style={box}
+            className={`flex ${slot.valign === 'start' ? 'items-start' : slot.valign === 'end' ? 'items-end' : 'items-center'} ${
+              slot.align === 'right' ? 'justify-end' : slot.align === 'center' ? 'justify-center' : 'justify-start'
+            }`}
+          >
+            <span
+              className="break-words leading-tight"
+              style={{
+                color: slot.color || 'var(--menu-text)',
+                fontSize: slot.fontSize || 24,
+                fontWeight: slot.bold ? 700 : 400,
+                fontStyle: slot.italic ? 'italic' : undefined,
+                textTransform: slot.uppercase ? 'uppercase' : undefined,
+                fontFamily: slot.fontFamily || undefined,
+                textAlign: slot.align || 'left',
+              }}
+            >
+              {slot.text}
+            </span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// Quel répéteur s'applique à cette zone — la même règle que le rendu d'origine.
+function productKind(zone) {
+  if (isFreeZone(zone)) return 'free'
+  if (zone.zoneType === 'grid') return 'grid'
+  if (zone.zoneType === 'list' || zone.zoneType === 'carousel' || zone.zoneType === 'menu') return 'list'
+  return 'highlight'
+}
+
 // Base zone padding, and the deeper inset used on whichever edge(s) carry a
 // torn-paper seam — ZoneSeams draws that band 20px deep into this zone (its
 // 40px band is centered ON the shared edge), so content needs to clear that
 // same depth only on that edge, not all four.
-const ZONE_PAD = 10
-const ZONE_PAD_SEAM = 25
+// Les anciennes constantes ZONE_PAD / ZONE_PAD_SEAM vivent dans le schéma
+// partagé : ZONE_STYLE_LIMITS.padding.fallback vaut 10, ZONE_PAD_SEAM 25.
 
 export default function ZoneRenderer({ zone, theme, settings, seamEdges }) {
   const zStyle = zone.backgroundStyle || {}
@@ -387,7 +602,18 @@ export default function ZoneRenderer({ zone, theme, settings, seamEdges }) {
   // per-zone background replaces it only when explicitly set
   const bg = zStyle.bgImage ? undefined : zStyle.bg
   const text = zStyle.text || (isDark ? '#FFFFFF' : '#1A1A1A')
-  const muted = text === '#FFFFFF' ? '#EEEEEE' : '#8A8A8A'
+  // Le texte secondaire n'avait que deux valeurs possibles, déduites de la
+  // couleur du texte principal. Il reste ce repli, mais la zone peut le fixer.
+  const muted = zStyle.textMuted || (text === '#FFFFFF' ? '#EEEEEE' : '#8A8A8A')
+
+  // Mise en forme de la zone : chaque réglage remplace une valeur qui était
+  // écrite en dur ici. Sans réglage, on retombe exactement dessus.
+  const padding = zoneStyleValue(zStyle, 'padding')
+  const gap = zoneStyleValue(zStyle, 'gap')
+  const titleGap = zoneStyleValue(zStyle, 'titleGap')
+  const radius = zoneStyleValue(zStyle, 'radius')
+  const shadowBlur = zoneStyleValue(zStyle, 'shadow')
+  const borderWidth = zoneStyleValue(zStyle, 'borderWidth')
   // Tailwind resolves var(--color-menu-text) at the :root declaration, which
   // freezes --menu-text to the root theme color. Re-export the runtime tokens
   // under their --color-* names directly on the zone so the overrides win.
@@ -401,8 +627,11 @@ export default function ZoneRenderer({ zone, theme, settings, seamEdges }) {
   }
 
   const isBanner = zone.zoneType === 'banner' || zone.zoneType === 'hero'
-  const isGrid = zone.zoneType === 'grid'
-  const isList = zone.zoneType === 'list' || zone.zoneType === 'carousel' || zone.zoneType === 'menu'
+  // Le placement libre l'emporte sur le type de la zone : c'est lui qui décide
+  // où vont les produits. Le type ne sert plus qu'au titre et au fond.
+  const isFree = !isBanner && isFreeZone(zone)
+  const isGrid = !isFree && zone.zoneType === 'grid'
+  const isList = !isFree && (zone.zoneType === 'list' || zone.zoneType === 'carousel' || zone.zoneType === 'menu')
 
   // Same "Taille de police" zone style control the title below already uses
   // (base 12px = 1x) — also drives the product cards' own size (image, name,
@@ -437,16 +666,47 @@ export default function ZoneRenderer({ zone, theme, settings, seamEdges }) {
       }
     : undefined
 
+  // Disposition en slots : elle remplace l'agencement figé ci-dessous. Une zone
+  // qui n'en porte pas garde exactement son rendu d'origine.
+  const zoneLayout = isBanner ? null : resolveZoneLayout(zone)
+
   let content
-  if (isBanner) {
+  if (zoneLayout) {
+    content = (
+      <ZoneSlotsContent
+        layout={zoneLayout}
+        zone={zone}
+        theme={theme}
+        settings={settings}
+        accent={accent}
+        scale={cardScale}
+        badgeType={zStyle.badgeType}
+        priceVariant={priceVariant}
+        zoneShowPrice={zoneShowPrice}
+        zStyle={zStyle}
+        gap={gap}
+      />
+    )
+  } else if (isBanner) {
     content = <BannerContent zone={zone} theme={theme} settings={settings} accent={accent} fontSize={zStyle.fontSize} badgeType={zStyle.badgeType} zoneShowPrice={zoneShowPrice} />
+  } else if (isFree) {
+    content = (
+      <div className="flex h-full flex-col">
+        <ZoneTitle name={zone.name} accent={accent} extraPrice={zone.backgroundStyle?.extraPrice} badgeType={zStyle.badgeType} theme={theme} banner={zone.backgroundStyle?.banner} fontSize={zStyle.fontSize} titleGap={titleGap} />
+        <div className="relative min-h-0 flex-1">
+          <div className="flex h-full flex-col" style={contentBoxStyle}>
+            <FreeContent zone={zone} theme={theme} scale={cardScale} badgeType={zStyle.badgeType} priceVariant={priceVariant} showPrice={zoneShowPrice} />
+          </div>
+        </div>
+      </div>
+    )
   } else if (isGrid) {
     content = (
       <div className="flex h-full flex-col">
-        <ZoneTitle name={zone.name} accent={accent} extraPrice={zone.backgroundStyle?.extraPrice} badgeType={zStyle.badgeType} theme={theme} banner={zone.backgroundStyle?.banner} fontSize={zStyle.fontSize} />
+        <ZoneTitle name={zone.name} accent={accent} extraPrice={zone.backgroundStyle?.extraPrice} badgeType={zStyle.badgeType} theme={theme} banner={zone.backgroundStyle?.banner} fontSize={zStyle.fontSize} titleGap={titleGap} />
         <div className="relative min-h-0 flex-1">
           <div className="flex h-full flex-col" style={contentBoxStyle}>
-            <GridContent zone={zone} theme={theme} scale={cardScale} badgeType={zStyle.badgeType} priceVariant={priceVariant} showPrice={zoneShowPrice} />
+            <GridContent zone={zone} theme={theme} scale={cardScale} badgeType={zStyle.badgeType} priceVariant={priceVariant} showPrice={zoneShowPrice} gap={gap} />
           </div>
         </div>
       </div>
@@ -454,10 +714,10 @@ export default function ZoneRenderer({ zone, theme, settings, seamEdges }) {
   } else if (isList) {
     content = (
       <div className="flex h-full flex-col">
-        <ZoneTitle name={zone.name} accent={accent} extraPrice={zone.backgroundStyle?.extraPrice} badgeType={zStyle.badgeType} theme={theme} banner={zone.backgroundStyle?.banner} fontSize={zStyle.fontSize} />
+        <ZoneTitle name={zone.name} accent={accent} extraPrice={zone.backgroundStyle?.extraPrice} badgeType={zStyle.badgeType} theme={theme} banner={zone.backgroundStyle?.banner} fontSize={zStyle.fontSize} titleGap={titleGap} />
         <div className="relative min-h-0 flex-1">
           <div className="flex h-full flex-col" style={contentBoxStyle}>
-            <ListContent zone={zone} theme={theme} settings={settings} scale={cardScale} badgeType={zStyle.badgeType} priceVariant={priceVariant} zoneShowPrice={zoneShowPrice} />
+            <ListContent zone={zone} theme={theme} settings={settings} scale={cardScale} badgeType={zStyle.badgeType} priceVariant={priceVariant} zoneShowPrice={zoneShowPrice} gap={gap} />
           </div>
         </div>
       </div>
@@ -466,7 +726,7 @@ export default function ZoneRenderer({ zone, theme, settings, seamEdges }) {
     // highlight / unknown: zone name + first item as image-title-desc card
     content = (
       <div className="flex h-full flex-col justify-center gap-4">
-        <ZoneTitle name={zone.name} accent={accent} extraPrice={zone.backgroundStyle?.extraPrice} badgeType={zStyle.badgeType} theme={theme} banner={zone.backgroundStyle?.banner} fontSize={zStyle.fontSize} />
+        <ZoneTitle name={zone.name} accent={accent} extraPrice={zone.backgroundStyle?.extraPrice} badgeType={zStyle.badgeType} theme={theme} banner={zone.backgroundStyle?.banner} fontSize={zStyle.fontSize} titleGap={titleGap} />
         {zone.items?.[0] ? (
           <ImageTitleDescPriceCard
             item={zone.items[0].item}
@@ -481,13 +741,23 @@ export default function ZoneRenderer({ zone, theme, settings, seamEdges }) {
     )
   }
 
-  const pad = (side) => (isBanner ? 0 : seamEdges?.[side] ? ZONE_PAD_SEAM : ZONE_PAD)
+  // Un bord qui porte une couture papier déchiré doit dégager la bande que
+  // ZoneSeams dessine par-dessus (25px) — une marge plus grande choisie par
+  // l'admin l'emporte, une plus petite est relevée à ce minimum.
+  const pad = (side) => {
+    if (isBanner) return 0
+    return seamEdges?.[side] ? Math.max(padding, ZONE_PAD_SEAM) : padding
+  }
 
   return (
     <div
       className="relative h-full w-full overflow-hidden"
       style={{
         background: bg,
+        borderRadius: radius || undefined,
+        border: zStyle.border ? `${borderWidth}px solid ${zStyle.border}` : undefined,
+        boxShadow: shadowBlur ? `0 ${Math.round(shadowBlur / 3)}px ${shadowBlur}px rgba(0,0,0,0.35)` : undefined,
+        fontFamily: zStyle.fontFamily || undefined,
         paddingTop: pad('top'),
         paddingRight: pad('right'),
         paddingBottom: pad('bottom'),
@@ -501,6 +771,14 @@ export default function ZoneRenderer({ zone, theme, settings, seamEdges }) {
           <div className="absolute inset-0" style={{ background: 'rgba(0,0,0,0.28)' }} />
         </div>
       ) : null}
+      {/* Décor : des images de la Bibliothèque posées sur les bords de la zone.
+          Entre le fond et le contenu — un filet néon ou une bande de bois se
+          voit sous les produits, pas par-dessus. */}
+      {Array.isArray(zStyle.decorations)
+        ? zStyle.decorations.map((dec) =>
+            dec?.imageUrl ? <div key={dec.id} style={decorationStyle(dec)} /> : null
+          )
+        : null}
       <div className="relative z-10 flex h-full w-full flex-col">{content}</div>
       {!isBanner && <ZoneBadge config={zone.badgeConfig} />}
     </div>

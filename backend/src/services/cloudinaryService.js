@@ -2,7 +2,12 @@ const sharp = require('sharp');
 const cloudinary = require('../config/cloudinary');
 const prisma = require('../db');
 
-const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+// Le SVG est accepté pour les icônes de la couche décorative : il reste net à
+// n'importe quelle taille sur une TV 4K, et il peut être recoloré côté client
+// (masque CSS, voir elementVisualStyle dans le schéma partagé). Il n'est jamais
+// injecté dans le DOM — toujours affiché via <img> ou un masque CSS — donc un
+// script glissé dans le fichier ne s'exécute pas.
+const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/svg+xml'];
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
 
 // Cloudinary's current plan caps a single upload at 10MB. Rather than reject
@@ -39,8 +44,10 @@ function toDataURI(buffer, mimetype) {
 // WebP (not JPEG) matters here: JPEG has no alpha channel, so sharp would
 // flatten a transparent PNG onto a black background — WebP keeps
 // transparency intact.
+// Le SVG passe intact lui aussi : sharp le rasterise, ce qui lui ferait perdre
+// exactement ce pour quoi on le veut (vectoriel, recolorable).
 async function prepareForUpload(file) {
-  if (file.mimetype === 'image/gif') {
+  if (file.mimetype === 'image/gif' || file.mimetype === 'image/svg+xml') {
     return { buffer: file.buffer, mimetype: file.mimetype };
   }
   let pipeline = sharp(file.buffer).trim();

@@ -16,6 +16,29 @@ import CardTemplatePreview from './canvas/CardTemplatePreview'
 import StyledZoneContent from './canvas/StyledZoneContent'
 import PresetThumb from './canvas/PresetThumb'
 import CardDesigner from './canvas/CardDesigner'
+import FreeItemsLayer from './canvas/FreeItemsLayer'
+import {
+  isFreeZone,
+  defaultFreeItemBox,
+  ZONE_LAYOUT_MODES,
+  ZONE_LAYOUT_MODE_LABELS,
+  ZONE_PRESETS,
+  presetZoneLayout,
+  resolveZoneLayout,
+  ZONE_STYLE_LIMITS,
+  zoneStyleValue,
+  fontOptionsWith,
+  decorationStyle,
+  ZONE_DECORATION_EDGES,
+  ZONE_DECORATION_EDGE_LABELS,
+  ZONE_DECORATION_REPEATS,
+  ZONE_DECORATION_REPEAT_LABELS,
+  ZONE_DECORATIONS_MAX,
+  DECORATION_SIZE_MIN,
+  DECORATION_SIZE_MAX,
+  DECORATION_SIZE_FALLBACK,
+} from '../../shared/menuSchema'
+import ElementVisual from './canvas/ElementVisual'
 import {
   GRID,
   REQUIRES_GRID,
@@ -23,6 +46,14 @@ import {
   DEFAULT_CONTENT_BOX,
   CONTENT_BOX_MIN,
   EL_IMAGE_MAX_PX,
+  EL_PADDING_MAX,
+  ICON_START_PX,
+  ELEMENT_TYPE_LABELS,
+  ELEMENT_FITS,
+  ELEMENT_FIT_LABELS,
+  ELEMENT_BG_SHAPES,
+  ELEMENT_BG_SHAPE_LABELS,
+  ICON_DEFAULTS,
   pxToPctW,
   pxToPctH,
   pctToPxW,
@@ -33,7 +64,6 @@ import {
   CARD_TEMPLATE_LABELS,
   ELEMENT_KINDS,
   ELEMENT_KIND_LABELS,
-  FONT_OPTIONS,
   BADGE_STYLES,
   BADGE_STYLE_LABELS,
   BADGE_POSITIONS,
@@ -120,6 +150,8 @@ function ScreenLayoutCanvas() {
   const [libraryCatId, setLibraryCatId] = useState(null)
   const [bgLibraryOpen, setBgLibraryOpen] = useState(false)
   const [bgLibraryCatId, setBgLibraryCatId] = useState(null)
+  const [decoPickerOpen, setDecoPickerOpen] = useState(false)
+  const [decoPickerCatId, setDecoPickerCatId] = useState(null)
   const [panelOpen, setPanelOpen] = useState(true)
   const [panelTab, setPanelTab] = useState('produits')
   const [catFilter, setCatFilter] = useState('all')
@@ -681,7 +713,26 @@ function ScreenLayoutCanvas() {
       col: it.col,
       index: it.index,
       order: it.order,
+      x: it.x,
+      y: it.y,
+      w: it.w,
+      h: it.h,
     }))
+
+    // Placement libre : pas de case à trouver, le produit arrive sur une tuile
+    // décalée des précédentes et se déplace ensuite à la souris.
+    if (isFreeZone(zone)) {
+      items.push({
+        itemId,
+        row: null,
+        col: null,
+        index: items.length,
+        order: items.length,
+        ...defaultFreeItemBox(items.length),
+      })
+      await putZoneItems(zone, items)
+      return
+    }
 
     if (targetRow !== undefined) {
       items.push({ itemId, row: targetRow, col: targetCol, index: null, order: items.length })
@@ -982,6 +1033,32 @@ function ScreenLayoutCanvas() {
 
   // T7.4 — zone style overrides stored in backgroundStyle JSON
   const styleCfg = selected?.backgroundStyle || {}
+  // Une décoration de la liste. `id` est stable une fois posée : c'est la clé
+  // de rendu et l'identité côté validation.
+  const patchDecoration = (index, patch) =>
+    patchStyle({
+      decorations: (styleCfg.decorations || []).map((d, j) => (j === index ? { ...d, ...patch } : d)),
+    })
+
+  const addDecoration = (asset) => {
+    const list = styleCfg.decorations || []
+    if (list.length >= ZONE_DECORATIONS_MAX) return
+    patchStyle({
+      decorations: [
+        ...list,
+        {
+          id: `deco-${Date.now().toString(36)}${list.length}`,
+          imageUrl: asset.url,
+          edge: 'top',
+          repeat: 'repeat',
+          size: DECORATION_SIZE_FALLBACK,
+        },
+      ],
+    })
+    setDecoPickerOpen(false)
+    setDecoPickerCatId(null)
+  }
+
   const patchStyle = (patch) => {
     patchZone(selected.id, { backgroundStyle: { ...styleCfg, ...patch } })
   }
@@ -1274,6 +1351,23 @@ function ScreenLayoutCanvas() {
     elAddTypeRef.current = type
     elAddInputRef.current?.click()
   }
+  // Image, logo ou icône : même élément, seuls les réglages de départ changent.
+  // Une icône naît carrée (une icône étirée n'a pas de sens) et recolorée en
+  // blanc, ce qui la rend visible tout de suite sur un fond sombre.
+  const newDrawnElement = (type, url) => {
+    const square = type === 'icon'
+    return {
+      id: newElementId(),
+      type,
+      x: 40,
+      y: 40,
+      w: square ? pxToPctW(ICON_START_PX) : 20,
+      h: square ? pxToPctH(ICON_START_PX) : 20,
+      zIndex: nextElementZ(),
+      imageUrl: url,
+      ...(square ? ICON_DEFAULTS : {}),
+    }
+  }
   // Gallery of every image already used by a free element on this layout —
   // lets the user drop the same logo/image on canvas again without
   // re-uploading the file.
@@ -1281,17 +1375,7 @@ function ScreenLayoutCanvas() {
     new Set(elements.filter((el) => el.imageUrl).map((el) => el.imageUrl))
   )
   const addElementFromGalleryUrl = (url) => {
-    const el = {
-      id: newElementId(),
-      type: 'image',
-      x: 40,
-      y: 40,
-      w: 20,
-      h: 20,
-      zIndex: nextElementZ(),
-      imageUrl: url,
-    }
-    addElementToState(el)
+    addElementToState(newDrawnElement('image', url))
   }
   // Same mechanism as addElementFromGalleryUrl — the asset's URL is already
   // hosted, so no upload step needed. Jump to the "Éléments" tab afterward:
@@ -1299,17 +1383,7 @@ function ScreenLayoutCanvas() {
   // `panelTab === 'elements'` overlay below) instead of duplicating that
   // logic for a second tab.
   const addElementFromLibraryAsset = (asset) => {
-    const el = {
-      id: newElementId(),
-      type: 'image',
-      x: 40,
-      y: 40,
-      w: 20,
-      h: 20,
-      zIndex: nextElementZ(),
-      imageUrl: asset.url,
-    }
-    addElementToState(el)
+    addElementToState(newDrawnElement('image', asset.url))
     setPanelTab('elements')
   }
   const handleElAddUpload = async (e) => {
@@ -1323,17 +1397,7 @@ function ScreenLayoutCanvas() {
       const { data } = await api.post('/upload', fd, {
         headers: { 'Content-Type': 'multipart/form-data' },
       })
-      const el = {
-        id: newElementId(),
-        type: elAddTypeRef.current,
-        x: 40,
-        y: 40,
-        w: 20,
-        h: 20,
-        zIndex: nextElementZ(),
-        imageUrl: data.url,
-      }
-      await addElementToState(el)
+      await addElementToState(newDrawnElement(elAddTypeRef.current, data.url))
     } catch (err) {
       setError(err.response?.data?.error || 'Échec de l’upload de l’image')
     } finally {
@@ -1724,7 +1788,62 @@ function ScreenLayoutCanvas() {
                       </Badge>
                     </div>
 
-                    {REQUIRES_GRID.includes(selected.zoneType) && (
+                    <div>
+                      <Label htmlFor="zone-cfg-zonepreset">Disposition de la zone</Label>
+                      <select
+                        id="zone-cfg-zonepreset"
+                        value={selected.backgroundStyle?.zoneLayout?.preset || ''}
+                        onChange={(e) => {
+                          const key = e.target.value
+                          if (!key) {
+                            // Retour à l'agencement d'origine : on retire la
+                            // disposition au lieu d'en enregistrer une copie.
+                            const { zoneLayout: _drop, ...rest } = styleCfg
+                            patchZone(selected.id, { backgroundStyle: rest })
+                            return
+                          }
+                          const next = presetZoneLayout(key)
+                          if (next) patchStyle({ zoneLayout: { ...next, preset: key } })
+                        }}
+                        className="w-full rounded-lg border border-gray-300 bg-transparent px-3 py-2.5 text-sm text-gray-800 outline-none focus:border-brand-300 focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:text-white/90"
+                      >
+                        <option value="">Origine — titre en haut, produits dessous</option>
+                        {ZONE_PRESETS.map((zp) => (
+                          <option key={zp.key} value={zp.key}>
+                            {zp.label}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                        {resolveZoneLayout(selected)
+                          ? ZONE_PRESETS.find((zp) => zp.key === selected.backgroundStyle?.zoneLayout?.preset)?.description ||
+                            'Disposition personnalisée.'
+                          : 'Le titre et les produits gardent l’agencement d’origine.'}
+                      </p>
+                    </div>
+
+                    <div>
+                      <Label htmlFor="zone-cfg-layoutmode">Disposition des produits</Label>
+                      <select
+                        id="zone-cfg-layoutmode"
+                        value={selected.layoutMode || 'auto'}
+                        onChange={(e) => patchZone(selected.id, { layoutMode: e.target.value })}
+                        className="w-full rounded-lg border border-gray-300 bg-transparent px-3 py-2.5 text-sm text-gray-800 outline-none focus:border-brand-300 focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:text-white/90"
+                      >
+                        {ZONE_LAYOUT_MODES.map((m) => (
+                          <option key={m} value={m}>
+                            {ZONE_LAYOUT_MODE_LABELS[m] || m}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                        {isFreeZone(selected)
+                          ? 'Chaque produit se déplace et se redimensionne à la souris sur le tableau.'
+                          : 'Les produits remplissent la grille ou la liste de la zone.'}
+                      </p>
+                    </div>
+
+                    {!isFreeZone(selected) && REQUIRES_GRID.includes(selected.zoneType) && (
                       <div className="grid grid-cols-2 gap-4">
                         <div>
                           <Label htmlFor="zone-cfg-rows">Lignes</Label>
@@ -2220,6 +2339,251 @@ function ScreenLayoutCanvas() {
                       </select>
                     </div>
 
+                    {/* Mise en forme : chaque curseur remplace une valeur qui
+                        était écrite en dur dans le rendu. Le libellé montre la
+                        valeur effective, donc « par défaut » n'est jamais un
+                        chiffre mystère. */}
+                    <div className="space-y-3 rounded-lg border border-gray-200 p-3 dark:border-gray-800">
+                      <p className="text-xs font-medium text-gray-500 dark:text-gray-400">
+                        Mise en forme de la zone
+                      </p>
+                      {[
+                        ['padding', 'Marge intérieure'],
+                        ['gap', 'Espace entre produits'],
+                        ['titleGap', 'Espace sous le titre'],
+                        ['radius', 'Arrondi des coins'],
+                        ['shadow', 'Ombre portée'],
+                      ].map(([key, label]) => {
+                        const limits = ZONE_STYLE_LIMITS[key]
+                        const value = zoneStyleValue(styleCfg, key)
+                        const custom = typeof styleCfg[key] === 'number'
+                        return (
+                          <div key={key}>
+                            <div className="flex items-center justify-between">
+                              <Label htmlFor={`zone-style-${key}`}>{label}</Label>
+                              <span className="text-xs text-gray-500 dark:text-gray-400">
+                                {value}px{custom ? '' : ' (défaut)'}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <input
+                                id={`zone-style-${key}`}
+                                type="range"
+                                min={limits.min}
+                                max={limits.max}
+                                value={value}
+                                onChange={(e) => patchStyle({ [key]: Number(e.target.value) })}
+                                className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-gray-200 accent-brand-500 dark:bg-gray-700"
+                              />
+                              {custom && (
+                                <button
+                                  type="button"
+                                  onClick={() => patchStyle({ [key]: undefined })}
+                                  title="Revenir à la valeur par défaut"
+                                  className="shrink-0 rounded border border-gray-200 px-1.5 py-0.5 text-[10px] text-gray-500 hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-800"
+                                >
+                                  ↺
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        )
+                      })}
+
+                      <div>
+                        <div className="flex items-center justify-between">
+                          <Label htmlFor="zone-style-border">Filet autour de la zone</Label>
+                          {styleCfg.border && (
+                            <button
+                              type="button"
+                              onClick={() => patchStyle({ border: undefined, borderWidth: undefined })}
+                              className="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+                            >
+                              Aucun
+                            </button>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <input
+                            id="zone-style-border"
+                            type="color"
+                            value={styleCfg.border || STYLE_DEFAULTS.accent}
+                            onChange={(e) => patchStyle({ border: e.target.value })}
+                            className="h-9 w-12 cursor-pointer rounded border border-gray-300 bg-transparent dark:border-gray-700"
+                          />
+                          {styleCfg.border && (
+                            <input
+                              type="range"
+                              min={ZONE_STYLE_LIMITS.borderWidth.min}
+                              max={ZONE_STYLE_LIMITS.borderWidth.max}
+                              value={zoneStyleValue(styleCfg, 'borderWidth')}
+                              onChange={(e) => patchStyle({ borderWidth: Number(e.target.value) })}
+                              className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-gray-200 accent-brand-500 dark:bg-gray-700"
+                            />
+                          )}
+                          <span className="shrink-0 text-xs text-gray-500 dark:text-gray-400">
+                            {styleCfg.border ? `${zoneStyleValue(styleCfg, 'borderWidth')}px` : 'aucun'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <Label htmlFor="zone-style-font-family">Police de la zone</Label>
+                      <select
+                        id="zone-style-font-family"
+                        value={styleCfg.fontFamily || ''}
+                        onChange={(e) => patchStyle({ fontFamily: e.target.value || undefined })}
+                        className="w-full rounded-lg border border-gray-300 bg-transparent px-3 py-2.5 text-sm text-gray-800 outline-none focus:border-brand-300 focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:text-white/90"
+                      >
+                        {fontOptionsWith(libraryFonts).map((f) => (
+                          <option key={f.value} value={f.value}>
+                            {f.label}
+                            {f.library ? ' (bibliothèque)' : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Décor : au lieu d'un unique effet codé en dur, n'importe
+                        quelle image de la Bibliothèque posée sur un bord. Une
+                        texture de plus = un téléversement, pas une modification
+                        du code. */}
+                    <div className="space-y-2 rounded-lg border border-gray-200 p-3 dark:border-gray-800">
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs font-medium text-gray-500 dark:text-gray-400">
+                          Décor de la zone
+                        </p>
+                        <button
+                          type="button"
+                          disabled={(styleCfg.decorations || []).length >= ZONE_DECORATIONS_MAX}
+                          onClick={() => setDecoPickerOpen(true)}
+                          className="rounded-lg border border-brand-200 px-2 py-1 text-xs font-medium text-brand-600 transition-colors hover:bg-brand-50 disabled:opacity-40 dark:border-brand-500/40 dark:text-brand-400 dark:hover:bg-brand-500/10"
+                        >
+                          + Ajouter
+                        </button>
+                      </div>
+
+                      {(styleCfg.decorations || []).length === 0 ? (
+                        <p className="text-xs text-gray-400">
+                          Aucun. Une image de la Bibliothèque posée sur un bord : filet, bande, texture…
+                        </p>
+                      ) : (
+                        (styleCfg.decorations || []).map((dec, i) => (
+                          <div key={dec.id} className="space-y-1.5 rounded-md border border-gray-100 p-2 dark:border-gray-800">
+                            <div className="flex items-center gap-2">
+                              <img src={dec.imageUrl} alt="" className="size-8 shrink-0 rounded border border-gray-200 object-cover dark:border-gray-700" />
+                              <select
+                                value={dec.edge}
+                                onChange={(e) => patchDecoration(i, { edge: e.target.value })}
+                                className="min-w-0 flex-1 rounded-lg border border-gray-300 bg-transparent px-2 py-1 text-xs text-gray-800 outline-none dark:border-gray-700 dark:text-white/90"
+                              >
+                                {ZONE_DECORATION_EDGES.map((ed) => (
+                                  <option key={ed} value={ed}>
+                                    {ZONE_DECORATION_EDGE_LABELS[ed]}
+                                  </option>
+                                ))}
+                              </select>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  patchStyle({
+                                    decorations: (styleCfg.decorations || []).filter((_, j) => j !== i),
+                                  })
+                                }
+                                title="Retirer"
+                                className="shrink-0 rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-error-500 dark:hover:bg-gray-800"
+                              >
+                                <TrashBinIcon className="size-3.5" />
+                              </button>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <select
+                                value={dec.repeat || 'repeat'}
+                                onChange={(e) => patchDecoration(i, { repeat: e.target.value })}
+                                className="min-w-0 flex-1 rounded-lg border border-gray-300 bg-transparent px-2 py-1 text-xs text-gray-800 outline-none dark:border-gray-700 dark:text-white/90"
+                              >
+                                {ZONE_DECORATION_REPEATS.map((r) => (
+                                  <option key={r} value={r}>
+                                    {ZONE_DECORATION_REPEAT_LABELS[r]}
+                                  </option>
+                                ))}
+                              </select>
+                              <input
+                                type="range"
+                                min={DECORATION_SIZE_MIN}
+                                max={DECORATION_SIZE_MAX}
+                                value={dec.size ?? DECORATION_SIZE_FALLBACK}
+                                onChange={(e) => patchDecoration(i, { size: Number(e.target.value) })}
+                                className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-gray-200 accent-brand-500 dark:bg-gray-700"
+                              />
+                              <span className="w-10 shrink-0 text-right text-xs text-gray-500 dark:text-gray-400">
+                                {dec.size ?? DECORATION_SIZE_FALLBACK}px
+                              </span>
+                            </div>
+                          </div>
+                        ))
+                      )}
+
+                      {decoPickerOpen && (
+                        <div className="space-y-2 rounded-md border border-gray-200 p-2 dark:border-gray-800">
+                          {libraryCategories.length === 0 ? (
+                            <p className="text-xs text-gray-400">
+                              La Bibliothèque est vide — téléversez-y une texture d’abord.
+                            </p>
+                          ) : decoPickerCatId == null ? (
+                            <div className="space-y-1">
+                              {libraryCategories.map((cat) => (
+                                <button
+                                  key={cat.id}
+                                  type="button"
+                                  onClick={() => setDecoPickerCatId(cat.id)}
+                                  className="flex w-full items-center justify-between rounded-md border border-gray-200 px-2.5 py-1.5 text-left text-xs font-medium text-gray-700 transition-colors hover:border-brand-300 hover:text-brand-600 dark:border-gray-700 dark:text-gray-300"
+                                >
+                                  <span>{cat.name}</span>
+                                  <span className="text-gray-400">{(cat.assets || []).length}</span>
+                                </button>
+                              ))}
+                            </div>
+                          ) : (
+                            (() => {
+                              const cat = libraryCategories.find((c) => c.id === decoPickerCatId)
+                              const assets = cat?.assets || []
+                              return (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => setDecoPickerCatId(null)}
+                                    className="flex items-center gap-1 text-xs font-medium text-brand-600 dark:text-brand-400"
+                                  >
+                                    <ChevronLeftIcon className="size-3.5" />
+                                    {cat?.name}
+                                  </button>
+                                  {assets.length === 0 ? (
+                                    <p className="text-xs text-gray-400">Vide.</p>
+                                  ) : (
+                                    <div className="grid grid-cols-4 gap-1.5">
+                                      {assets.map((asset) => (
+                                        <button
+                                          key={asset.id}
+                                          type="button"
+                                          onClick={() => addDecoration(asset)}
+                                          title={asset.name || ''}
+                                          className="aspect-square overflow-hidden rounded-md border border-gray-200 bg-white transition-colors hover:border-brand-400 dark:border-gray-700 dark:bg-gray-900"
+                                        >
+                                          <img src={asset.url} alt="" className="h-full w-full object-cover" />
+                                        </button>
+                                      ))}
+                                    </div>
+                                  )}
+                                </>
+                              )
+                            })()
+                          )}
+                        </div>
+                      )}
+                    </div>
+
                     <div>
                       <Label htmlFor="zone-style-banner">Style du titre</Label>
                       <select
@@ -2323,16 +2687,20 @@ function ScreenLayoutCanvas() {
                     <button
                       type="button"
                       disabled={elUploading}
-                      onClick={() => openElAddPicker('logo')}
+                      onClick={() => openElAddPicker('icon')}
+                      title="SVG de préférence : net à toute taille et recolorable"
                       className="flex-1 rounded-lg border px-2 py-2 text-sm font-medium transition-colors hover:border-brand-300 hover:text-brand-600 dark:border-gray-700 dark:text-gray-300"
                     >
-                      Logo
+                      Icône
                     </button>
                   </div>
+                  {/* .svg listé en plus de image/* : certains systèmes ne
+                      déclarent pas le type MIME des .svg dans le sélecteur de
+                      fichiers, et le fichier apparaîtrait alors grisé. */}
                   <input
                     ref={elAddInputRef}
                     type="file"
-                    accept="image/*"
+                    accept="image/*,.svg"
                     className="hidden"
                     onChange={handleElAddUpload}
                   />
@@ -2376,19 +2744,19 @@ function ScreenLayoutCanvas() {
                           Tx
                         </span>
                       ) : el.imageUrl ? (
-                        <img
-                          src={el.imageUrl}
-                          alt=""
-                          className="h-9 w-9 flex-none rounded object-cover"
-                        />
+                        // Fond sombre : une icône recolorée en blanc serait
+                        // invisible sur la vignette claire par défaut.
+                        <span className="h-9 w-9 flex-none overflow-hidden rounded bg-gray-800 p-0.5">
+                          <ElementVisual el={el} />
+                        </span>
                       ) : (
                         <span className="flex h-9 w-9 flex-none items-center justify-center rounded text-xs font-bold text-gray-500 dark:text-gray-400">
                           {el.type.slice(0, 2).toUpperCase()}
                         </span>
                       )}
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium capitalize text-gray-800 dark:text-white/90">
-                          {el.type}
+                        <p className="truncate text-sm font-medium text-gray-800 dark:text-white/90">
+                          {ELEMENT_TYPE_LABELS[el.type] || el.type}
                         </p>
                         <p className="truncate text-xs text-gray-400">
                           {el.type === 'text' ? el.text : el.imageUrl || '—'}
@@ -2412,7 +2780,7 @@ function ScreenLayoutCanvas() {
                   {selectedElement && (
                     <div className="space-y-4 rounded-lg border border-gray-200 p-3 dark:border-gray-700">
                       <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">
-                        Éditer ({selectedElement.type})
+                        Éditer ({ELEMENT_TYPE_LABELS[selectedElement.type] || selectedElement.type})
                       </p>
                       {selectedElement.type === 'text' ? (
                         <>
@@ -2514,7 +2882,7 @@ function ScreenLayoutCanvas() {
                                 }
                                 className="w-full rounded-lg border border-gray-300 bg-transparent px-3 py-2.5 text-sm text-gray-800 outline-none focus:border-brand-300 focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:text-white/90"
                               >
-                                {FONT_OPTIONS.map((f) => (
+                                {fontOptionsWith(libraryFonts).map((f) => (
                                   <option key={f.value} value={f.value}>
                                     {f.label}
                                   </option>
@@ -2596,23 +2964,29 @@ function ScreenLayoutCanvas() {
                         </>
                       ) : (
                         <div className="space-y-3">
+                          {/* Aperçu sur fond sombre et avec les mêmes styles que
+                              la TV : une icône recolorée en blanc doit se voir
+                              telle qu'elle s'affichera, pas en couleurs
+                              d'origine sur du blanc. */}
                           {selectedElement.imageUrl ? (
-                            <img
-                              src={selectedElement.imageUrl}
-                              alt=""
-                              className="h-24 w-full rounded-lg border border-gray-200 object-contain dark:border-gray-700"
-                            />
+                            <div className="h-24 w-full rounded-lg border border-gray-200 bg-gray-800 p-2 dark:border-gray-700">
+                              <ElementVisual el={selectedElement} />
+                            </div>
                           ) : null}
                           <label
                             className={`flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-gray-300 px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:border-brand-300 hover:text-brand-600 dark:border-gray-700 dark:text-gray-300 dark:hover:text-brand-400 ${
                               elUploading ? 'opacity-60' : ''
                             }`}
                           >
-                            {elUploading ? 'Upload...' : selectedElement.imageUrl ? 'Changer l’image' : 'Importer une image'}
+                            {elUploading
+                              ? 'Upload...'
+                              : selectedElement.imageUrl
+                                ? 'Changer le fichier'
+                                : 'Importer un fichier'}
                             <input
                               ref={elChangeInputRef}
                               type="file"
-                              accept="image/*"
+                              accept="image/*,.svg"
                               className="hidden"
                               onChange={handleElChangeUpload}
                               disabled={elUploading}
@@ -2646,6 +3020,127 @@ function ScreenLayoutCanvas() {
                                   const px = clamp(Number(e.target.value) || 1, 1, EL_IMAGE_MAX_PX)
                                   patchElementById(selectedElement.id, { h: pxToPctH(px) })
                                 }}
+                              />
+                            </div>
+                          </div>
+
+                          {/* Sans réglage enregistré, un élément dessiné garde
+                              son comportement historique : étiré sur toute sa
+                              boîte (voir elementVisualStyle). */}
+                          <div>
+                            <Label>Dans la boîte</Label>
+                            <div className="grid grid-cols-2 gap-1.5">
+                              {ELEMENT_FITS.map((f) => (
+                                <button
+                                  key={f}
+                                  type="button"
+                                  onClick={() => patchElementById(selectedElement.id, { fit: f })}
+                                  className={`rounded-lg border px-2 py-1.5 text-xs font-medium transition-colors ${
+                                    (selectedElement.fit || 'fill') === f
+                                      ? 'border-brand-500 bg-brand-50 text-brand-600 dark:bg-brand-500/15 dark:text-brand-400'
+                                      : 'border-gray-200 text-gray-500 hover:border-brand-300 dark:border-gray-700 dark:text-gray-400'
+                                  }`}
+                                >
+                                  {ELEMENT_FIT_LABELS[f]}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* Recoloration : le fichier sert de pochoir, sa
+                              couleur d'origine est remplacée par un aplat.
+                              Marche sur un SVG comme sur un PNG détouré ; sur
+                              une photo à fond plein ça donne un rectangle de
+                              couleur, d'où le bouton retour aux couleurs
+                              d'origine. */}
+                          <div>
+                            <Label htmlFor={`el-icolor-${selectedElement.id}`}>Couleur du dessin</Label>
+                            <div className="flex items-center gap-2">
+                              <input
+                                id={`el-icolor-${selectedElement.id}`}
+                                type="color"
+                                value={selectedElement.color || ICON_DEFAULTS.color}
+                                onChange={(e) => patchElementById(selectedElement.id, { color: e.target.value })}
+                                className="h-10 w-14 cursor-pointer rounded-md border border-gray-300 bg-transparent p-1 dark:border-gray-700"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => patchElementById(selectedElement.id, { color: undefined })}
+                                className={`rounded-md border px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                                  selectedElement.color
+                                    ? 'border-gray-200 text-gray-500 hover:border-brand-300 hover:text-brand-600 dark:border-gray-700 dark:text-gray-400'
+                                    : 'border-brand-500 bg-brand-50 text-brand-600 dark:bg-brand-500/15 dark:text-brand-400'
+                                }`}
+                              >
+                                Couleurs d’origine
+                              </button>
+                            </div>
+                          </div>
+
+                          <div>
+                            <Label>Pastille de fond</Label>
+                            <div className="grid grid-cols-3 gap-1.5">
+                              {ELEMENT_BG_SHAPES.map((sh) => (
+                                <button
+                                  key={sh}
+                                  type="button"
+                                  onClick={() => patchElementById(selectedElement.id, { bgShape: sh })}
+                                  className={`rounded-lg border px-2 py-1.5 text-xs font-medium transition-colors ${
+                                    (selectedElement.bgShape || 'none') === sh
+                                      ? 'border-brand-500 bg-brand-50 text-brand-600 dark:bg-brand-500/15 dark:text-brand-400'
+                                      : 'border-gray-200 text-gray-500 hover:border-brand-300 dark:border-gray-700 dark:text-gray-400'
+                                  }`}
+                                >
+                                  {ELEMENT_BG_SHAPE_LABELS[sh]}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          {(selectedElement.bgShape || 'none') !== 'none' && (
+                            <div>
+                              <Label htmlFor={`el-bgcolor-${selectedElement.id}`}>Couleur de la pastille</Label>
+                              <input
+                                id={`el-bgcolor-${selectedElement.id}`}
+                                type="color"
+                                value={selectedElement.bgColor || ICON_DEFAULTS.bgColor}
+                                onChange={(e) => patchElementById(selectedElement.id, { bgColor: e.target.value })}
+                                className="h-10 w-14 cursor-pointer rounded-md border border-gray-300 bg-transparent p-1 dark:border-gray-700"
+                              />
+                            </div>
+                          )}
+
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <Label htmlFor={`el-pad-${selectedElement.id}`}>
+                                Marge (%, max {EL_PADDING_MAX})
+                              </Label>
+                              <Input
+                                id={`el-pad-${selectedElement.id}`}
+                                type="number"
+                                min="0"
+                                max={EL_PADDING_MAX}
+                                value={selectedElement.padding ?? 0}
+                                onChange={(e) =>
+                                  patchElementById(selectedElement.id, {
+                                    padding: clamp(Number(e.target.value) || 0, 0, EL_PADDING_MAX),
+                                  })
+                                }
+                              />
+                            </div>
+                            <div>
+                              <Label htmlFor={`el-op-${selectedElement.id}`}>Opacité (%)</Label>
+                              <Input
+                                id={`el-op-${selectedElement.id}`}
+                                type="number"
+                                min="0"
+                                max="100"
+                                value={Math.round((selectedElement.opacity ?? 1) * 100)}
+                                onChange={(e) =>
+                                  patchElementById(selectedElement.id, {
+                                    opacity: clamp(Number(e.target.value) || 0, 0, 100) / 100,
+                                  })
+                                }
                               />
                             </div>
                           </div>
@@ -2840,8 +3335,9 @@ function ScreenLayoutCanvas() {
                 const clash = active
                   ? (layout.zones || []).some((z) => z.id !== zone.id && overlaps(rect, z))
                   : false
-                const isGrid = zone.zoneType === 'grid'
-                const isList = zone.zoneType === 'list' || zone.zoneType === 'carousel'
+                const isFree = isFreeZone(zone)
+                const isGrid = !isFree && zone.zoneType === 'grid'
+                const isList = !isFree && (zone.zoneType === 'list' || zone.zoneType === 'carousel')
                 const rows = zone.gridConfig?.rows || 1
                 const cols = zone.gridConfig?.cols || 1
 
@@ -2861,6 +3357,7 @@ function ScreenLayoutCanvas() {
                 const zoneEmpty =
                   CONTENT_ZONE_TYPES.includes(zone.zoneType) && (zone.items?.length ?? 0) === 0
                 const zoneOverflow =
+                  !isFree &&
                   REQUIRES_GRID.includes(zone.zoneType) &&
                   ((zone.items?.length ?? 0) > rows * cols ||
                     (zone.zoneType === 'grid' &&
@@ -2951,6 +3448,11 @@ function ScreenLayoutCanvas() {
                         </span>
                       ) : null}
                       <StyledZoneContent zone={zone} accent={zAccent} text={zText} />
+                      {Array.isArray(zStyle.decorations)
+                        ? zStyle.decorations.map((dec) =>
+                            dec?.imageUrl ? <div key={dec.id} style={decorationStyle(dec)} /> : null
+                          )
+                        : null}
                     </div>
                     <ZoneBadgePreview config={zone.badgeConfig} accent={zAccent} />
                   </div>
@@ -3059,7 +3561,18 @@ function ScreenLayoutCanvas() {
                       className="relative min-h-0 flex-1"
                     >
                     <div className="absolute flex flex-col" style={contentBoxStyle}>
-                    {(isGrid || isList) && (zone.items?.length ?? 0) > 0 ? (
+                    {isFree ? (
+                      <FreeItemsLayer
+                        zone={zone}
+                        isAdmin={isAdmin}
+                        accent={zAccent}
+                        text={zText}
+                        showPrice={zShowPrice}
+                        onCommit={(items) => putZoneItems(zone, items)}
+                        onRemove={(itemId) => removeZoneItem(zone.id, itemId)}
+                        onEditCard={(zi) => setCardDesigner({ zoneId: zone.id, itemId: zi.itemId })}
+                      />
+                    ) : (isGrid || isList) && (zone.items?.length ?? 0) > 0 ? (
                       isGrid ? (
                         <div
                           className="mt-1 grid min-h-0 flex-1 gap-0.5"
@@ -3378,12 +3891,7 @@ function ScreenLayoutCanvas() {
                           {el.text}
                         </div>
                       ) : el.imageUrl ? (
-                        <img
-                          src={el.imageUrl}
-                          alt=""
-                          draggable={false}
-                          className="h-full w-full object-fill"
-                        />
+                        <ElementVisual el={el} />
                       ) : (
                         <div className="flex h-full w-full items-center justify-center bg-gray-700/50 text-[10px] text-gray-300">
                           {el.type}

@@ -3,6 +3,7 @@
 // Extracted verbatim from ScreenLayoutCanvas.jsx — logic unchanged.
 
 import { GRID, REQUIRES_GRID, CONTENT_ZONE_TYPES } from './constants'
+import { isFreeZone } from '../../../shared/menuSchema'
 
 export const overlaps = (a, b) =>
   a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h
@@ -136,6 +137,10 @@ export function validateLayoutForPublish(layout) {
     if (CONTENT_ZONE_TYPES.includes(z.zoneType) && items.length === 0) {
       errors.push(`La zone « ${label} » est vide : ajoutez au moins un produit.`)
     }
+    // Placement libre : chaque produit porte sa propre boîte, la capacité
+    // rows x cols et le « hors grille » n'ont plus de sens. Même règle que
+    // validatePublishableLayout côté backend.
+    if (isFreeZone(z)) continue
     if (REQUIRES_GRID.includes(z.zoneType)) {
       const rows = z.gridConfig?.rows
       const cols = z.gridConfig?.cols

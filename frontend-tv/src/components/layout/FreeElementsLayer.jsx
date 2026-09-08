@@ -7,6 +7,7 @@
 import CategoryBanner from '../primitives/CategoryBanner.jsx'
 import PriceBadge from '../primitives/PriceBadge.jsx'
 import { badgeTypeOf } from '../../theme/designTokens'
+import { elementVisualStyle } from '../../shared/menuSchema'
 
 export default function FreeElementsLayer({ elements }) {
   if (!elements || elements.length === 0) return null
@@ -132,13 +133,26 @@ export default function FreeElementsLayer({ elements }) {
           )
         }
 
-        // 'image' and 'logo' — user-uploaded content (e.g. Cloudinary).
-        // object-fill: width/height are set independently in the admin editor,
-        // so the image must exactly fill that box (no aspect-ratio letterbox
-        // gap) — otherwise it never visually reaches an edge/corner placement.
+        // 'image', 'logo' and 'icon' — fichiers uploadés (Cloudinary). Le
+        // rendu (proportions, pastille de fond, marge, opacité, recoloration)
+        // est calculé par le schéma partagé, pour que l'éditeur admin et la TV
+        // dessinent la même chose. Défauts hérités : image étirée sur toute la
+        // boîte — largeur et hauteur se règlent séparément dans l'éditeur, donc
+        // sans étirement le dessin n'atteindrait jamais vraiment un bord.
+        const visual = elementVisualStyle(el)
         return (
           <div key={el.id} style={box}>
-            <img src={el.imageUrl} alt="" className="h-full w-full object-fill" />
+            <div style={visual.frame}>
+              {visual.mask ? (
+                <span style={visual.mask} />
+              ) : (
+                <img
+                  src={el.imageUrl}
+                  alt=""
+                  style={{ width: '100%', height: '100%', objectFit: visual.fit }}
+                />
+              )}
+            </div>
           </div>
         )
       })}
