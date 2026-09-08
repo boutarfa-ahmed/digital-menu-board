@@ -626,10 +626,17 @@ export default function ZoneRenderer({ zone, theme, settings, seamEdges }) {
     '--menu-text-muted': muted,
   }
 
-  const isBanner = zone.zoneType === 'banner' || zone.zoneType === 'hero'
-  // Le placement libre l'emporte sur le type de la zone : c'est lui qui décide
-  // où vont les produits. Le type ne sert plus qu'au titre et au fond.
-  const isFree = !isBanner && isFreeZone(zone)
+  // Disposition en slots : elle remplace l'agencement figé plus bas. Une zone
+  // qui n'en porte pas garde exactement son rendu d'origine.
+  const zoneLayout = resolveZoneLayout(zone)
+  const isFree = isFreeZone(zone)
+
+  // Une zone « héro » / « bannière » rend une image plein cadre — sauf si
+  // l'admin a demandé autre chose. Un choix explicite (une disposition, ou le
+  // placement libre) l'emporte sur le type de la zone : sinon le builder
+  // laisse choisir un réglage que l'écran ignore en silence, ce qui est
+  // exactement ce qu'on a vu. Sans choix, rien ne change.
+  const isBanner = (zone.zoneType === 'banner' || zone.zoneType === 'hero') && !zoneLayout && !isFree
   const isGrid = !isFree && zone.zoneType === 'grid'
   const isList = !isFree && (zone.zoneType === 'list' || zone.zoneType === 'carousel' || zone.zoneType === 'menu')
 
@@ -665,10 +672,6 @@ export default function ZoneRenderer({ zone, theme, settings, seamEdges }) {
         height: `${contentBox.h}%`,
       }
     : undefined
-
-  // Disposition en slots : elle remplace l'agencement figé ci-dessous. Une zone
-  // qui n'en porte pas garde exactement son rendu d'origine.
-  const zoneLayout = isBanner ? null : resolveZoneLayout(zone)
 
   let content
   if (zoneLayout) {
