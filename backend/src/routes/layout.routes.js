@@ -76,7 +76,7 @@ router.put('/zones/:id', auth, requireRole('admin'), async (req, res, next) => {
 
   const b = req.body || {};
   const data = {};
-  for (const f of ['name', 'zoneType', 'cardTemplate', 'x', 'y', 'w', 'h', 'order']) {
+  for (const f of ['name', 'zoneType', 'cardTemplate', 'layoutMode', 'x', 'y', 'w', 'h', 'order']) {
     if (b[f] !== undefined) data[f] = b[f];
   }
   if (b.gridConfig !== undefined) data.gridConfig = serializeJson(b.gridConfig, '{}');
@@ -87,8 +87,6 @@ router.put('/zones/:id', auth, requireRole('admin'), async (req, res, next) => {
     const zone = await prisma.zone.findUnique({ where: { id } });
     if (!zone) return res.status(404).json({ error: 'Zone not found' });
 
-    const boxErrors = validateZoneItems(items, zone.layoutMode);
-    if (boxErrors.length > 0) return res.status(400).json({ error: boxErrors.join('; ') });
 
     const x = b.x ?? zone.x;
     const y = b.y ?? zone.y;
@@ -122,8 +120,6 @@ router.delete('/zones/:id', auth, requireRole('admin'), async (req, res, next) =
     const zone = await prisma.zone.findUnique({ where: { id } });
     if (!zone) return res.status(404).json({ error: 'Zone not found' });
 
-    const boxErrors = validateZoneItems(items, zone.layoutMode);
-    if (boxErrors.length > 0) return res.status(400).json({ error: boxErrors.join('; ') });
     await prisma.zone.delete({ where: { id } });
     await setLayoutDraft(prisma, zone.layoutId);
     emitLayoutUpdated(await screenIdOfLayout(zone.layoutId));

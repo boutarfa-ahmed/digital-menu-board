@@ -189,3 +189,42 @@ export function zoneShowsPrice(zone) {
   const explicit = zone?.backgroundStyle?.showPrice
   return typeof explicit === 'boolean' ? explicit : defaultShowPrice(zone)
 }
+
+// La forme d'une zone telle que l'API l'attend (PUT /screens/:id/layout).
+//
+// Elle était recopiée à trois endroits — enregistrer le brouillon, et les deux
+// moitiés de l'annulation de suppression. Un champ ajouté au modèle et oublié
+// dans une copie ne casse rien tout de suite : il est simplement absent de
+// l'envoi, et le backend le remet à sa valeur par défaut. C'est comme ça que
+// `layoutMode` et les boîtes des produits se faisaient effacer à chaque
+// sauvegarde. Une seule fonction, donc, pour qu'il n'y ait plus de copie à
+// oublier.
+export function zonePayload(z) {
+  return {
+    id: z.id,
+    name: z.name,
+    zoneType: z.zoneType,
+    cardTemplate: z.cardTemplate,
+    layoutMode: z.layoutMode,
+    gridConfig: z.gridConfig,
+    backgroundStyle: z.backgroundStyle,
+    badgeConfig: z.badgeConfig,
+    x: z.x,
+    y: z.y,
+    w: z.w,
+    h: z.h,
+    order: z.order,
+    items: (z.items || []).map((it) => ({
+      itemId: it.itemId,
+      row: it.row,
+      col: it.col,
+      index: it.index,
+      order: it.order,
+      qty: it.qty,
+      x: it.x,
+      y: it.y,
+      w: it.w,
+      h: it.h,
+    })),
+  }
+}

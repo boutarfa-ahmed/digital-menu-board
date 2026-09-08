@@ -93,6 +93,7 @@ import {
   validateLayoutForPublish,
   defaultShowPrice,
   zoneShowsPrice,
+  zonePayload,
 } from './canvas/canvasUtils'
 import {
   cardLayoutFor,
@@ -645,50 +646,9 @@ function ScreenLayoutCanvas() {
     setError('')
     try {
       const z = undoZone
-      const restored = {
-        name: z.name,
-        zoneType: z.zoneType,
-        cardTemplate: z.cardTemplate,
-        gridConfig: z.gridConfig,
-        backgroundStyle: z.backgroundStyle,
-        badgeConfig: z.badgeConfig,
-        x: z.x,
-        y: z.y,
-        w: z.w,
-        h: z.h,
-        order: z.order,
-        items: (z.items || []).map((it) => ({
-          itemId: it.itemId,
-          row: it.row,
-          col: it.col,
-          index: it.index,
-          order: it.order,
-          qty: it.qty,
-        })),
-      }
+      const { id: _dropped, ...restored } = zonePayload(z)
       const zones = [
-        ...layout.zones.map((s) => ({
-          id: s.id,
-          name: s.name,
-          zoneType: s.zoneType,
-          cardTemplate: s.cardTemplate,
-          gridConfig: s.gridConfig,
-          backgroundStyle: s.backgroundStyle,
-          badgeConfig: s.badgeConfig,
-          x: s.x,
-          y: s.y,
-          w: s.w,
-          h: s.h,
-          order: s.order,
-          items: (s.items || []).map((it) => ({
-            itemId: it.itemId,
-            row: it.row,
-            col: it.col,
-            index: it.index,
-            order: it.order,
-            qty: it.qty,
-          })),
-        })),
+        ...layout.zones.map(zonePayload),
         restored,
       ]
       await api.put(`/screens/${id}/layout`, { zones })
@@ -938,30 +898,7 @@ function ScreenLayoutCanvas() {
     setError('')
     setNotice('')
     try {
-      const payload = {
-        zones: layout.zones.map((z) => ({
-          id: z.id,
-          name: z.name,
-          zoneType: z.zoneType,
-          cardTemplate: z.cardTemplate,
-          gridConfig: z.gridConfig,
-          backgroundStyle: z.backgroundStyle,
-          badgeConfig: z.badgeConfig,
-          x: z.x,
-          y: z.y,
-          w: z.w,
-          h: z.h,
-          order: z.order,
-          items: (z.items || []).map((it) => ({
-            itemId: it.itemId,
-            row: it.row,
-            col: it.col,
-            index: it.index,
-            order: it.order,
-            qty: it.qty,
-          })),
-        })),
-      }
+      const payload = { zones: layout.zones.map(zonePayload) }
       await api.put(`/screens/${id}/layout`, payload)
       setDirty(false)
       setNotice('Brouillon enregistré.')
