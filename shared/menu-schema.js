@@ -201,10 +201,23 @@ export const BADGE_TYPE_LABELS = {
 
 // Fond de l'écran (T7.6), stocké dans layout.settings.background.
 export const BACKGROUND_TYPES = ['image', 'split']
-export const BG_PATTERNS = ['none', 'torn-paper']
+export const BG_PATTERNS = ['none', 'torn-paper', 'torn-edge']
 export const BG_PATTERN_LABELS = {
   none: 'Aucun',
-  'torn-paper': 'Papier déchiré (entre zones)',
+  'torn-paper': 'Papier déchiré (bande entre zones)',
+  'torn-edge': 'Bord déchiré (zones collées)',
+}
+
+// Deux façons de traiter une jointure :
+//   'band' — une bande de papier déchiré posée PAR-DESSUS la jointure ; les
+//            zones se coupent sur son axe et la bande cache le raccord.
+//   'edge' — pas de bande du tout : les deux zones se touchent directement, et
+//            c'est leur frontière elle-même qui est déchirée. Une zone mord
+//            dans l'autre, comme deux feuilles déchirées mises bout à bout.
+export function seamModeOf(pattern) {
+  if (pattern === 'torn-paper') return 'band'
+  if (pattern === 'torn-edge') return 'edge'
+  return null
 }
 
 // Couche décorative libre (T8), stockée dans layout.settings.elements.
@@ -411,6 +424,13 @@ export const STYLE_DEFAULTS = {
   accent: '#FF5A1F',
 }
 
+// Épaisseur de la bande, en pixels de la maquette (réglable dans le dialogue
+// « Fond »), et amplitude du déplacement des poignées, en % de l'écran.
+export const SEAM_THICKNESS_DEFAULT = 26
+export const SEAM_THICKNESS_MIN = 8
+export const SEAM_THICKNESS_MAX = 140
+export const SEAM_BEND_MAX = 35
+
 export const BG_DEFAULTS = {
   type: 'image',
   dark: '#121212',
@@ -420,6 +440,8 @@ export const BG_DEFAULTS = {
   patternColor: '#FFFFFF',
   seamsEnabled: true,
   hiddenSeams: [],
+  seamThickness: SEAM_THICKNESS_DEFAULT,
+  seamShape: {},
 }
 
 // Sous-zone (T9) : la boîte du conteneur de produits à l'intérieur de la zone,
@@ -963,6 +985,482 @@ export function freeItemBox(zoneItem, index = 0) {
   const h = n(zoneItem?.h)
   if (x === null || y === null || w === null || h === null) return defaultFreeItemBox(index)
   return { x, y, w, h }
+}
+
+
+// ============================================================================
+// 5.6 PAPIER DÉCHIRÉ (les jointures entre zones)
+// ============================================================================
+//
+// La bande de papier déchiré posée sur la jointure de deux zones voisines.
+// Elle est dessinée d'un seul trait, sur toute la longueur de la jointure et
+// dans le repère de la maquette (DESIGN_W x DESIGN_H) : aucun motif ne se
+// répète, et le builder comme la TV n'ont qu'à poser le même <svg viewBox>
+// par-dessus leur cadre 16:9. Tout se calcule ici pour que les deux rendus
+// soient identiques au pixel près.
+
+// Hachage de la clé de jointure : chaque jointure a sa propre déchirure, mais
+// toujours la même, d'un rendu à l'autre et d'un écran à l'autre.
+function seamSeed(key) {
+  let h = 2166136261
+  const text = String(key || '')
+  for (let i = 0; i < text.length; i++) {
+    h = Math.imul(h ^ text.charCodeAt(i), 16777619)
+  }
+  return h >>> 0
+}
+
+// Suite pseudo-aléatoire déterministe (pas de Math.random : le builder et la
+// TV doivent tomber sur exactement la même déchirure).
+function seamRand(seed, i) {
+  let x = Math.imul(seed ^ (i + 0x9e3779b9), 2246822519) >>> 0
+  x = Math.imul(x ^ (x >>> 13), 3266489917) >>> 0
+  return ((x ^ (x >>> 16)) >>> 0) / 4294967296
+}
+
+// Bruit de valeur interpolé en cosinus : une valeur tirée tous les
+// `wavelength` pixels, reliée en douceur.
+function seamNoise(seed, pos, wavelength) {
+  const i = Math.floor(pos / wavelength)
+  const t = pos / wavelength - i
+  const a = seamRand(seed, i)
+  const b = seamRand(seed, i + 1)
+  return a + (b - a) * ((1 - Math.cos(t * Math.PI)) / 2)
+}
+
+// Bruit de valeur non lissé : les valeurs sont reliées à la règle, pas en
+// douceur. C'est ce qui donne des pointes franches là où le cosinus ne fait
+// que des vagues.
+function seamNoiseSharp(seed, pos, wavelength) {
+  const i = Math.floor(pos / wavelength)
+  const t = pos / wavelength - i
+  const a = seamRand(seed, i)
+  const b = seamRand(seed, i + 1)
+  return a + (b - a) * t
+}
+
+// Les accrocs : de loin en loin, la déchirure part bien plus profond, ou
+// laisse au contraire une languette qui dépasse. Ce sont eux qu'on lit comme
+// « arraché à la main » — sans eux, un bord n'est qu'une ondulation régulière.
+// Un accroc au plus par case de SEAM_NICK_STEP px, tiré au sort, en triangle
+// pour que la pointe reste franche. On regarde les cases voisines aussi : un
+// accroc posé près d'un bord de case déborde dessus.
+const SEAM_NICK_STEP = 34
+
+// Une déchirure ne s'énerve pas régulièrement : sur quelques centimètres elle
+// part presque droit, puis d'un coup elle vibre dans tous les sens. Cette
+// enveloppe, lente, dose tout le détail fin et la force des accrocs — carrée
+// pour que les moments calmes soient vraiment calmes et pas une moyenne molle.
+function seamRage(seed, pos) {
+  const n = seamNoise(seed, pos, 150) * 0.65 + seamNoise(seed + 271, pos, 61) * 0.35
+  return 0.25 + 1.9 * n * n
+}
+
+function seamNicks(seed, pos, amp) {
+  let total = 0
+  const cell = Math.floor(pos / SEAM_NICK_STEP)
+  for (let i = cell - 1; i <= cell + 1; i++) {
+    const draw = seamRand(seed, i * 3)
+    if (draw > 0.66) continue
+    const center = (i + seamRand(seed, i * 3 + 1)) * SEAM_NICK_STEP
+    const size = seamRand(seed, i * 3 + 2)
+    // Deux accrocs sur trois creusent en pointe ; le dernier laisse une
+    // languette, plus large et plus plate — une languette de papier est un
+    // morceau arraché, pas une épine.
+    const cut = draw < 0.44
+    const half = cut ? 2 + size * 7 : 6 + size * 14
+    const d = Math.abs(pos - center)
+    if (d >= half) continue
+    const fall = cut ? 1 - d / half : 1 - (d / half) * (d / half)
+    // Les accrocs suivent l'humeur du bord : ils se serrent et s'enfoncent là
+    // où ça vibre, s'effacent là où c'est calme.
+    total += (0.4 + draw) * amp * seamRage(seed + 613, center) * (cut ? 1 : -0.45) * fall
+  }
+  return total
+}
+
+// L'axe de la bande reste EXACTEMENT sur la jointure tant qu'on ne la courbe
+// pas : une ligne posée est droite, et c'est l'admin qui décide de la pencher.
+// Tout l'irrégulier est donc dans la morsure des bords, prise indépendamment
+// sur chacun : des creux lents (le bord part et revient), des dents moyennes,
+// des petites, des pointes franches, une secousse point par point, et les
+// accrocs par-dessus. La bande change de largeur, jamais de cap.
+function seamBite(seed, pos, amp) {
+  // Le dessin d'ensemble du bord (lent) ne dépend pas de l'humeur ; c'est le
+  // détail fin qui s'emballe ou se calme avec elle.
+  const slow = seamNoise(seed, pos, 210) * 0.3 + seamNoise(seed + 1543, pos, 47) * 0.22
+  const fine =
+    seamNoise(seed + 8191, pos, 17) * 0.24 +
+    seamNoiseSharp(seed + 33413, pos, 8.5) * 0.18 +
+    seamRand(seed + 104729, Math.round(pos * 2)) * 0.12
+  return (slow + fine * seamRage(seed + 51001, pos)) * amp + seamNicks(seed + 7919, pos, amp * 0.9)
+}
+
+export function seamThicknessValue(value) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return SEAM_THICKNESS_DEFAULT
+  return Math.max(SEAM_THICKNESS_MIN, Math.min(SEAM_THICKNESS_MAX, value))
+}
+
+// Les trois poignées d'une jointure — début, milieu, fin — en % de l'écran par
+// rapport à sa position d'origine. Tout à zéro = la ligne droite d'origine.
+export function seamShapeValue(entry) {
+  const num = (v) =>
+    typeof v === 'number' && Number.isFinite(v) ? Math.max(-SEAM_BEND_MAX, Math.min(SEAM_BEND_MAX, v)) : 0
+  return { a: num(entry && entry.a), b: num(entry && entry.b), c: num(entry && entry.c) }
+}
+
+// Écart transversal de l'axe de la bande le long de la jointure. Quadratique
+// construite pour passer *exactement* par la poignée du milieu : ce qu'on
+// attrape à la souris suit le curseur.
+function seamCross(shape, t) {
+  const mid = 2 * shape.b - (shape.a + shape.c) / 2
+  const u = 1 - t
+  return u * u * shape.a + 2 * u * t * mid + t * t * shape.c
+}
+
+// Repère d'une jointure : `along` court le long de la ligne, `cross` la
+// traverse. Une jointure verticale court en Y et se déplace en X, une
+// horizontale l'inverse.
+function seamAxes(seam, shape, thickness) {
+  const vertical = String(seam.key || '').charAt(0) === 'v'
+  const alongSize = vertical ? DESIGN_H : DESIGN_W
+  const crossSize = vertical ? DESIGN_W : DESIGN_H
+  const th = seamThicknessValue(thickness)
+  return {
+    vertical,
+    key: String(seam.key || ''),
+    shape: seamShapeValue(shape),
+    crossSize,
+    start: (seam.a / GRID) * alongSize,
+    len: (seam.span / GRID) * alongSize,
+    base: (seam.pos / GRID) * crossSize,
+    th,
+  }
+}
+
+// Position transversale de l'axe de la bande à `t` : la jointure, plus la
+// courbe tirée à la souris. Les zones voisines se découpent sur cette même
+// ligne — c'est elle, la vraie frontière.
+function seamCrossAt(axes, t) {
+  return axes.base + (seamCross(axes.shape, t) / 100) * axes.crossSize
+}
+
+// Un point de l'axe de la bande, en coordonnées maquette.
+function seamCenter(axes, t) {
+  const along = axes.start + axes.len * t
+  const cross = seamCrossAt(axes, t)
+  return axes.vertical ? { x: cross, y: along } : { x: along, y: cross }
+}
+
+// Les trois poignées, en coordonnées maquette, pour que le builder les pose.
+export function seamHandles(seam, shape, thickness) {
+  const axes = seamAxes(seam, shape, thickness)
+  return [0, 0.5, 1].map((t) => {
+    const p = seamCenter(axes, t)
+    return { t, x: p.x, y: p.y }
+  })
+}
+
+// Tirer la déchirure à l'endroit `t` (0 = son début, 1 = sa fin), et pas
+// seulement à ses trois points : la courbe n'a que trois inconnues, alors on
+// répartit le déplacement dessus au plus juste (moindres carrés). Les poids
+// sont ceux de la quadratique elle-même, réécrite en fonction des trois
+// points — le point attrapé suit donc exactement le curseur, où qu'il soit.
+export function seamShapeDrag(shape, t, delta) {
+  const base = seamShapeValue(shape)
+  const u = 1 - t
+  const w = [u * u - u * t, 4 * u * t, t * t - u * t]
+  const norm = w[0] * w[0] + w[1] * w[1] + w[2] * w[2]
+  if (norm === 0) return base
+  const clamp = (v) => Math.max(-SEAM_BEND_MAX, Math.min(SEAM_BEND_MAX, v))
+  return {
+    a: clamp(base.a + (delta * w[0]) / norm),
+    b: clamp(base.b + (delta * w[1]) / norm),
+    c: clamp(base.c + (delta * w[2]) / norm),
+  }
+}
+
+// La frontière quand il n'y a pas de bande : l'axe de la jointure, mordu d'un
+// seul bord. Les deux zones se découpent sur exactement cette ligne, donc
+// l'une prend ce que l'autre laisse et le raccord est invisible.
+function seamEdgeCross(axes, seed, along) {
+  const t = axes.len === 0 ? 0 : (along - axes.start) / axes.len
+  const amp = axes.th * 0.55
+  return seamCrossAt(axes, Math.max(0, Math.min(1, t))) + seamBite(seed + 7, along, amp) - amp * 0.5
+}
+
+// Pas de pas fixe : une jointure courte garde du détail, une longue ne fait pas
+// exploser la taille du tracé (le contour part aussi dans un clip-path CSS).
+function seamEdgeStep(len) {
+  return Math.max(2, len / 420)
+}
+
+// Le tracé de cette ligne, pour l'ombre portée le long de la déchirure.
+export function seamTearPath(seam, shape, thickness) {
+  const axes = seamAxes(seam, shape, thickness)
+  const seed = seamSeed(seam.key)
+  const steps = Math.max(24, Math.round(axes.len / seamEdgeStep(axes.len)))
+  const pts = []
+  for (let i = 0; i <= steps; i++) {
+    const along = axes.start + (axes.len * i) / steps
+    const cross = seamEdgeCross(axes, seed, along)
+    pts.push(axes.vertical ? cross.toFixed(1) + ' ' + along.toFixed(1) : along.toFixed(1) + ' ' + cross.toFixed(1))
+  }
+  return 'M' + pts.join(' L')
+}
+
+// La bande complète : le contour fermé à remplir (`d`) et ses deux bords pris
+// séparément (`a` et `b`), dont le builder et la TV se servent pour poser
+// l'ombre du bord — c'est elle qui donne l'épaisseur de la feuille.
+export function seamRibbon(seam, shape, thickness) {
+  const axes = seamAxes(seam, shape, thickness)
+  const th = axes.th
+  const half = th / 2
+  const amp = th * 0.55
+  const seed = seamSeed(seam.key)
+  // Un point tous les 3px de maquette : assez fin pour que les petites dents
+  // ressortent, assez large pour que le tracé reste court.
+  // Un point tous les 2px de maquette : sans ça les accrocs les plus étroits
+  // passeraient entre deux échantillons.
+  const steps = Math.max(24, Math.round(axes.len / 2))
+  // Largeur de papier qui doit rester quoi qu'il arrive : deux morsures
+  // profondes face à face se croiseraient sinon, et la bande se nouerait.
+  const minGap = th * 0.16
+  const pt = (along, cross) =>
+    axes.vertical ? cross.toFixed(1) + ' ' + along.toFixed(1) : along.toFixed(1) + ' ' + cross.toFixed(1)
+  const edgeA = []
+  const edgeB = []
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps
+    const along = axes.start + axes.len * t
+    const cross = seamCrossAt(axes, t)
+    let a = cross - half + seamBite(seed + 7, along, amp)
+    let b = cross + half - seamBite(seed + 40503, along, amp)
+    if (b - a < minGap) {
+      const mid = (a + b) / 2
+      a = mid - minGap / 2
+      b = mid + minGap / 2
+    }
+    edgeA.push(pt(along, a))
+    edgeB.push(pt(along, b))
+  }
+  return {
+    a: 'M' + edgeA.join(' L'),
+    b: 'M' + edgeB.join(' L'),
+    d: 'M' + edgeA.join(' L') + ' L' + edgeB.slice().reverse().join(' L') + ' Z',
+  }
+}
+
+
+
+// Les jointures : partout où deux zones se touchent. Les morceaux alignés
+// (même ligne, bout à bout) sont fusionnés en UNE jointure — sinon une ligne
+// qui traverse tout l'écran serait découpée en un morceau par paire de zones,
+// chacun avec sa propre déchirure et ses propres poignées, et en courber un
+// laisserait les autres derrière.
+export function computeSeams(zones) {
+  const list = zones || []
+  const raw = { v: [], h: [] }
+  const push = (type, pos, a, span) => {
+    if (span <= 0) return
+    raw[type].push({ pos, a, span })
+  }
+  for (let i = 0; i < list.length; i++) {
+    for (let j = 0; j < i; j++) {
+      const a = list[i]
+      const b = list[j]
+      const yTop = Math.max(a.y, b.y)
+      const ySpan = Math.min(a.y + a.h, b.y + b.h) - yTop
+      const xLeft = Math.max(a.x, b.x)
+      const xSpan = Math.min(a.x + a.w, b.x + b.w) - xLeft
+      if (ySpan > 0) {
+        if (a.x + a.w === b.x) push('v', b.x, yTop, ySpan)
+        if (b.x + b.w === a.x) push('v', a.x, yTop, ySpan)
+      }
+      if (xSpan > 0) {
+        if (a.y + a.h === b.y) push('h', b.y, xLeft, xSpan)
+        if (b.y + b.h === a.y) push('h', a.y, xLeft, xSpan)
+      }
+    }
+  }
+  const merge = (type) => {
+    const byPos = {}
+    for (const seg of raw[type]) {
+      if (!byPos[seg.pos]) byPos[seg.pos] = []
+      byPos[seg.pos].push(seg)
+    }
+    const out = []
+    for (const pos of Object.keys(byPos)) {
+      const segs = byPos[pos].slice().sort((x, y) => x.a - y.a)
+      let cur = null
+      for (const seg of segs) {
+        // Bout à bout compte comme continu : deux morceaux qui se touchent
+        // (fin de l'un = début de l'autre) forment une seule déchirure.
+        if (cur && seg.a <= cur.a + cur.span) {
+          cur.span = Math.max(cur.span, seg.a + seg.span - cur.a)
+        } else {
+          cur = { pos: Number(pos), a: seg.a, span: seg.span }
+          out.push(cur)
+        }
+      }
+    }
+    for (const seg of out) seg.key = type + ':' + seg.pos + ':' + seg.a + ':' + seg.span
+    return out
+  }
+  return { v: merge('v'), h: merge('h') }
+}
+
+// Quel bord de CHAQUE zone porte une jointure visible : la zone s'en sert pour
+// écarter son contenu de la bande qui passe dessus (voir ZoneRenderer).
+export function zoneSeamEdges(zones, hiddenSeams, seams) {
+  const hidden = {}
+  for (const key of hiddenSeams || []) hidden[key] = true
+  const found = seams || computeSeams(zones)
+  const map = {}
+  const mark = (zone, side) => {
+    if (!map[zone.id]) map[zone.id] = {}
+    map[zone.id][side] = true
+  }
+  for (const zone of zones || []) {
+    for (const s of found.v) {
+      if (hidden[s.key]) continue
+      if (Math.min(zone.y + zone.h, s.a + s.span) - Math.max(zone.y, s.a) <= 0) continue
+      if (s.pos === zone.x) mark(zone, 'left')
+      if (s.pos === zone.x + zone.w) mark(zone, 'right')
+    }
+    for (const s of found.h) {
+      if (hidden[s.key]) continue
+      if (Math.min(zone.x + zone.w, s.a + s.span) - Math.max(zone.x, s.a) <= 0) continue
+      if (s.pos === zone.y) mark(zone, 'top')
+      if (s.pos === zone.y + zone.h) mark(zone, 'bottom')
+    }
+  }
+  return map
+}
+
+// Les deux zones qui bordent une déchirure ne s'arrêtent plus à leur
+// rectangle : elles se découpent sur la ligne de la déchirure. Là où elle
+// penche, l'une mange un morceau de l'autre — c'est ce qui fait que le papier
+// a l'air posé par-dessus plutôt que collé sur une grille.
+//
+// Renvoie de combien la peinture de la zone déborde de son rectangle (en % de
+// ce rectangle, prêt pour des `inset` négatifs) et le contour à découper, ou
+// null quand toutes ses déchirures sont droites : la zone garde alors très
+// exactement son rendu d'avant.
+const SEAM_CLIP_STEPS = 24
+const SEAM_CLIP_OVERLAP = 1.5
+
+export function zoneSeamClip(zone, seams, seamShape, thickness, hiddenSeams, mode) {
+  if (!zone || !seams) return null
+  const jagged = mode === 'edge'
+  const hidden = {}
+  for (const key of hiddenSeams || []) hidden[key] = true
+  const shapes = seamShape || {}
+  const zx = (zone.x / GRID) * DESIGN_W
+  const zy = (zone.y / GRID) * DESIGN_H
+  const zw = (zone.w / GRID) * DESIGN_W
+  const zh = (zone.h / GRID) * DESIGN_H
+
+  // La jointure qui court sur ce bord de la zone, si elle est visible et
+  // qu'elle a été courbée.
+  const sideSeam = (vertical, pos) => {
+    const found = (vertical ? seams.v : seams.h).find((s) => {
+      if (hidden[s.key] || s.pos !== pos) return false
+      const from = vertical ? zone.y : zone.x
+      const to = vertical ? zone.y + zone.h : zone.x + zone.w
+      return Math.min(to, s.a + s.span) - Math.max(from, s.a) > 0
+    })
+    if (!found) return null
+    const shape = seamShapeValue(shapes[found.key])
+    // Sans bande, la découpe sert TOUJOURS : c'est elle qui dessine la
+    // déchirure. Avec une bande, une jointure droite n'a rien à découper — la
+    // zone garde alors très exactement son rendu d'avant.
+    if (!jagged && shape.a === 0 && shape.b === 0 && shape.c === 0) return null
+    return { seam: found, axes: seamAxes(found, shape, thickness), seed: seamSeed(found.key) }
+  }
+
+  const sides = {
+    top: sideSeam(false, zone.y),
+    bottom: sideSeam(false, zone.y + zone.h),
+    left: sideSeam(true, zone.x),
+    right: sideSeam(true, zone.x + zone.w),
+  }
+  if (!sides.top && !sides.bottom && !sides.left && !sides.right) return null
+
+  // Où passe la frontière sur ce bord, échantillonnée entre `from` et `to`
+  // (coordonnées maquette le long du bord). `outward` dit de quel côté la zone
+  // déborde : +1 quand la zone est avant la ligne (bord droit/bas), -1 après.
+  const boundary = (side, from, to, outward) => {
+    // La courbe lisse suffit sous une bande (elle cache le raccord) ; la
+    // déchirure nue, elle, doit être échantillonnée assez fin pour que ses
+    // dents survivent au clip-path.
+    const steps = jagged
+      ? Math.max(SEAM_CLIP_STEPS, Math.round((to - from) / seamEdgeStep(side.axes.len)))
+      : SEAM_CLIP_STEPS
+    const pts = []
+    for (let i = 0; i <= steps; i++) {
+      const along = from + ((to - from) * i) / steps
+      const t = side.axes.len === 0 ? 0 : (along - side.axes.start) / side.axes.len
+      const cross = jagged
+        ? seamEdgeCross(side.axes, side.seed, along)
+        : seamCrossAt(side.axes, Math.max(0, Math.min(1, t)))
+      pts.push({ along, cross: cross + outward * SEAM_CLIP_OVERLAP })
+    }
+    return pts
+  }
+
+  const edges = {
+    top: sides.top ? boundary(sides.top, zx, zx + zw, -1) : null,
+    bottom: sides.bottom ? boundary(sides.bottom, zx, zx + zw, 1) : null,
+    left: sides.left ? boundary(sides.left, zy, zy + zh, -1) : null,
+    right: sides.right ? boundary(sides.right, zy, zy + zh, 1) : null,
+  }
+
+  // Débordement : ce que la frontière prend au-delà du rectangle, plus de quoi
+  // passer sous la bande de papier.
+  const over = (pts, base, sign) => {
+    if (!pts) return 0
+    let max = 0
+    for (const p of pts) max = Math.max(max, sign * (p.cross - base))
+    return Math.max(0, max)
+  }
+  const spillPx = {
+    top: over(edges.top, zy, -1),
+    bottom: over(edges.bottom, zy + zh, 1),
+    left: over(edges.left, zx, -1),
+    right: over(edges.right, zx + zw, 1),
+  }
+
+  const boxX = zx - spillPx.left
+  const boxY = zy - spillPx.top
+  const boxW = zw + spillPx.left + spillPx.right
+  const boxH = zh + spillPx.top + spillPx.bottom
+  const px = (x) => (((x - boxX) / boxW) * 100).toFixed(2) + '%'
+  const py = (y) => (((y - boxY) / boxH) * 100).toFixed(2) + '%'
+  const corner = (x, y) => px(x) + ' ' + py(y)
+
+  const points = []
+  // Sens horaire, en partant du coin haut-gauche : haut, droite, bas, gauche.
+  if (edges.top) for (const p of edges.top) points.push(corner(p.along, p.cross))
+  else points.push(corner(zx, zy), corner(zx + zw, zy))
+  if (edges.right) for (const p of edges.right) points.push(corner(p.cross, p.along))
+  else points.push(corner(zx + zw, zy), corner(zx + zw, zy + zh))
+  if (edges.bottom) for (let i = edges.bottom.length - 1; i >= 0; i--) points.push(corner(edges.bottom[i].along, edges.bottom[i].cross))
+  else points.push(corner(zx + zw, zy + zh), corner(zx, zy + zh))
+  if (edges.left) for (let i = edges.left.length - 1; i >= 0; i--) points.push(corner(edges.left[i].cross, edges.left[i].along))
+  else points.push(corner(zx, zy + zh), corner(zx, zy))
+
+  return {
+    // En % du rectangle de la zone : la couche de peinture se pose en
+    // `inset` négatifs, le contenu ne bouge pas.
+    spill: {
+      top: (spillPx.top / zh) * 100,
+      bottom: (spillPx.bottom / zh) * 100,
+      left: (spillPx.left / zw) * 100,
+      right: (spillPx.right / zw) * 100,
+    },
+    clipPath: 'polygon(' + points.join(', ') + ')',
+  }
 }
 
 

@@ -594,7 +594,7 @@ function productKind(zone) {
 // Les anciennes constantes ZONE_PAD / ZONE_PAD_SEAM vivent dans le schéma
 // partagé : ZONE_STYLE_LIMITS.padding.fallback vaut 10, ZONE_PAD_SEAM 25.
 
-export default function ZoneRenderer({ zone, theme, settings, seamEdges }) {
+export default function ZoneRenderer({ zone, theme, settings, seamEdges, seamClip = null }) {
   const zStyle = zone.backgroundStyle || {}
   const accent = zStyle.accent || accentOf(theme)
   const isDark = !!zStyle.dark
@@ -752,14 +752,28 @@ export default function ZoneRenderer({ zone, theme, settings, seamEdges }) {
     return seamEdges?.[side] ? Math.max(padding, ZONE_PAD_SEAM) : padding
   }
 
+  // Quand une déchirure courbée passe sur un bord, la peinture de la zone
+  // (fond, image, bordure) déborde de son rectangle et se découpe sur la
+  // ligne de la déchirure : la zone mange un morceau de sa voisine d'un côté,
+  // lui en cède de l'autre. Sans déchirure courbée, `seamClip` est nul et la
+  // couche colle exactement au rectangle — rendu identique à avant.
+  const spill = seamClip?.spill
+  const paintStyle = {
+    top: spill ? `${-spill.top}%` : 0,
+    right: spill ? `${-spill.right}%` : 0,
+    bottom: spill ? `${-spill.bottom}%` : 0,
+    left: spill ? `${-spill.left}%` : 0,
+    background: bg,
+    borderRadius: radius || undefined,
+    border: zStyle.border ? `${borderWidth}px solid ${zStyle.border}` : undefined,
+    boxShadow: shadowBlur ? `0 ${Math.round(shadowBlur / 3)}px ${shadowBlur}px rgba(0,0,0,0.35)` : undefined,
+    clipPath: seamClip?.clipPath,
+  }
+
   return (
     <div
-      className="relative h-full w-full overflow-hidden"
+      className={`relative h-full w-full ${seamClip ? '' : 'overflow-hidden'}`}
       style={{
-        background: bg,
-        borderRadius: radius || undefined,
-        border: zStyle.border ? `${borderWidth}px solid ${zStyle.border}` : undefined,
-        boxShadow: shadowBlur ? `0 ${Math.round(shadowBlur / 3)}px ${shadowBlur}px rgba(0,0,0,0.35)` : undefined,
         fontFamily: zStyle.fontFamily || undefined,
         paddingTop: pad('top'),
         paddingRight: pad('right'),
@@ -768,12 +782,14 @@ export default function ZoneRenderer({ zone, theme, settings, seamEdges }) {
         ...cssVars,
       }}
     >
-      {zStyle.bgImage ? (
-        <div className="absolute inset-0">
-          <img src={zStyle.bgImage} alt="" className="absolute inset-0 h-full w-full object-cover" />
-          <div className="absolute inset-0" style={{ background: 'rgba(0,0,0,0.28)' }} />
-        </div>
-      ) : null}
+      <div className="absolute overflow-hidden" style={paintStyle}>
+        {zStyle.bgImage ? (
+          <>
+            <img src={zStyle.bgImage} alt="" className="absolute inset-0 h-full w-full object-cover" />
+            <div className="absolute inset-0" style={{ background: 'rgba(0,0,0,0.28)' }} />
+          </>
+        ) : null}
+      </div>
       {/* Décor : des images de la Bibliothèque posées sur les bords de la zone.
           Entre le fond et le contenu — un filet néon ou une bande de bois se
           voit sous les produits, pas par-dessus. */}
@@ -782,7 +798,7 @@ export default function ZoneRenderer({ zone, theme, settings, seamEdges }) {
             dec?.imageUrl ? <div key={dec.id} style={decorationStyle(dec)} /> : null
           )
         : null}
-      <div className="relative z-10 flex h-full w-full flex-col">{content}</div>
+      <div className={`relative z-10 flex h-full w-full flex-col ${seamClip ? 'overflow-hidden' : ''}`}>{content}</div>
       {!isBanner && <ZoneBadge config={zone.badgeConfig} />}
     </div>
   )

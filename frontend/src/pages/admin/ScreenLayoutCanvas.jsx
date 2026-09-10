@@ -17,8 +17,15 @@ import StyledZoneContent from './canvas/StyledZoneContent'
 import PresetThumb from './canvas/PresetThumb'
 import CardDesigner from './canvas/CardDesigner'
 import FreeItemsLayer from './canvas/FreeItemsLayer'
+import LibraryPicker from './canvas/LibraryPicker'
 import {
   isFreeZone,
+  seamShapeValue,
+  zoneSeamClip,
+  seamModeOf,
+  seamThicknessValue,
+  SEAM_THICKNESS_MIN,
+  SEAM_THICKNESS_MAX,
   defaultFreeItemBox,
   ZONE_LAYOUT_MODES,
   ZONE_LAYOUT_MODE_LABELS,
@@ -154,6 +161,8 @@ function ScreenLayoutCanvas() {
   const [libraryCatId, setLibraryCatId] = useState(null)
   const [bgLibraryOpen, setBgLibraryOpen] = useState(false)
   const [bgLibraryCatId, setBgLibraryCatId] = useState(null)
+  const [screenBgLibOpen, setScreenBgLibOpen] = useState(false)
+  const [screenBgLibCatId, setScreenBgLibCatId] = useState(null)
   const [decoPickerOpen, setDecoPickerOpen] = useState(false)
   const [decoPickerCatId, setDecoPickerCatId] = useState(null)
   const [panelOpen, setPanelOpen] = useState(true)
@@ -1143,6 +1152,19 @@ function ScreenLayoutCanvas() {
 
   // T7.6 — screen background editor (layout.settings.background)
   const screenBg = layout?.settings?.background || null
+
+  // Les jointures papier déchiré du fond en cours (canvas) et du fond en train
+  // d'être réglé (dialogue). Une déchirure courbée découpe les deux zones
+  // qu'elle sépare : `zoneSeamClip` dit de combien la peinture de la zone
+  // déborde et sur quel contour elle se coupe.
+  const seamsOf = (bg) =>
+    seamModeOf(bg?.pattern) && bg.seamsEnabled !== false ? computeSeamsAdmin(layout?.zones || []) : null
+  const clipOf = (bg, seams, zone) =>
+    seams
+      ? zoneSeamClip(zone, seams, bg.seamShape, bg.seamThickness, bg.hiddenSeams, seamModeOf(bg.pattern))
+      : null
+  const canvasSeams = seamsOf(screenBg)
+  const bgFormSeams = seamsOf(bgForm)
   const openBg = () => {
     setBgForm(
       screenBg
@@ -1150,6 +1172,8 @@ function ScreenLayoutCanvas() {
             ...screenBg,
             seamsEnabled: screenBg.seamsEnabled !== false,
             hiddenSeams: Array.isArray(screenBg.hiddenSeams) ? screenBg.hiddenSeams : [],
+            seamShape: screenBg.seamShape && typeof screenBg.seamShape === 'object' ? screenBg.seamShape : {},
+            seamThickness: seamThicknessValue(screenBg.seamThickness),
           }
         : { ...BG_DEFAULTS }
     )
@@ -1162,13 +1186,17 @@ function ScreenLayoutCanvas() {
     setError('')
     try {
       const settings = { ...(layout.settings || {}) }
-      // Image present -> full image background. No image but torn-paper texture
-      // selected -> texture-only background (torn dividers between zones).
-      // Otherwise the background is simply removed.
+      // Image present -> full image background. No image but a torn texture
+      // selected (bande ou bord nu) -> texture-only background. Otherwise the
+      // background is simply removed.
       const pattern = BG_PATTERNS.includes(bgForm?.pattern) ? bgForm.pattern : 'none'
       const seamFields = {
         seamsEnabled: bgForm?.seamsEnabled !== false,
         hiddenSeams: Array.isArray(bgForm?.hiddenSeams) ? bgForm.hiddenSeams : [],
+        // Forme de chaque déchirure (3 points tirés à la souris) et épaisseur
+        // commune de la bande.
+        seamShape: bgForm?.seamShape && typeof bgForm.seamShape === 'object' ? bgForm.seamShape : {},
+        seamThickness: seamThicknessValue(bgForm?.seamThickness),
       }
       settings.background = bgForm?.imageUrl
         ? {
@@ -1178,7 +1206,7 @@ function ScreenLayoutCanvas() {
             patternColor: bgForm.patternColor || BG_DEFAULTS.patternColor,
             ...seamFields,
           }
-        : pattern === 'torn-paper'
+        : seamModeOf(pattern)
           ? { pattern, patternColor: bgForm.patternColor || BG_DEFAULTS.patternColor, ...seamFields }
           : null
       await api.put(`/screens/${id}/layout`, { settings })
@@ -2163,62 +2191,16 @@ function ScreenLayoutCanvas() {
                       ) : null}
 
                       {bgLibraryOpen && (
-                        <div className="mt-2 space-y-2 rounded-lg border border-gray-200 p-2 dark:border-gray-700">
-                          {libraryCategories.length === 0 ? (
-                            <p className="text-xs text-gray-400">Bibliothèque vide.</p>
-                          ) : bgLibraryCatId == null ? (
-                            <div className="space-y-1">
-                              {libraryCategories.map((cat) => (
-                                <button
-                                  key={cat.id}
-                                  type="button"
-                                  onClick={() => setBgLibraryCatId(cat.id)}
-                                  className="flex w-full items-center justify-between rounded-md border border-gray-200 px-2.5 py-1.5 text-left text-xs font-medium text-gray-700 transition-colors hover:border-brand-300 hover:text-brand-600 dark:border-gray-700 dark:text-gray-300"
-                                >
-                                  <span>{cat.name}</span>
-                                  <span className="text-gray-400">{(cat.assets || []).length}</span>
-                                </button>
-                              ))}
-                            </div>
-                          ) : (
-                            (() => {
-                              const cat = libraryCategories.find((c) => c.id === bgLibraryCatId)
-                              const assets = cat?.assets || []
-                              return (
-                                <>
-                                  <button
-                                    type="button"
-                                    onClick={() => setBgLibraryCatId(null)}
-                                    className="flex items-center gap-1 text-xs font-medium text-brand-600 dark:text-brand-400"
-                                  >
-                                    <ChevronLeftIcon className="size-3.5" />
-                                    {cat?.name}
-                                  </button>
-                                  {assets.length === 0 ? (
-                                    <p className="text-xs text-gray-400">Vide.</p>
-                                  ) : (
-                                    <div className="grid grid-cols-4 gap-1.5">
-                                      {assets.map((asset) => (
-                                        <button
-                                          key={asset.id}
-                                          type="button"
-                                          onClick={() => {
-                                            patchStyle({ bgImage: asset.url })
-                                            setBgLibraryOpen(false)
-                                          }}
-                                          title={asset.name || ''}
-                                          className="aspect-square overflow-hidden rounded-md border border-gray-200 bg-white transition-colors hover:border-brand-400 dark:border-gray-700 dark:bg-gray-900"
-                                        >
-                                          <img src={asset.url} alt="" className="h-full w-full object-cover" />
-                                        </button>
-                                      ))}
-                                    </div>
-                                  )}
-                                </>
-                              )
-                            })()
-                          )}
-                        </div>
+                        <LibraryPicker
+                          className="mt-2"
+                          categories={libraryCategories}
+                          catId={bgLibraryCatId}
+                          onCatId={setBgLibraryCatId}
+                          onPick={(asset) => {
+                            patchStyle({ bgImage: asset.url })
+                            setBgLibraryOpen(false)
+                          }}
+                        />
                       )}
                     </div>
 
@@ -2466,61 +2448,13 @@ function ScreenLayoutCanvas() {
                       )}
 
                       {decoPickerOpen && (
-                        <div className="space-y-2 rounded-md border border-gray-200 p-2 dark:border-gray-800">
-                          {libraryCategories.length === 0 ? (
-                            <p className="text-xs text-gray-400">
-                              La Bibliothèque est vide — téléversez-y une texture d’abord.
-                            </p>
-                          ) : decoPickerCatId == null ? (
-                            <div className="space-y-1">
-                              {libraryCategories.map((cat) => (
-                                <button
-                                  key={cat.id}
-                                  type="button"
-                                  onClick={() => setDecoPickerCatId(cat.id)}
-                                  className="flex w-full items-center justify-between rounded-md border border-gray-200 px-2.5 py-1.5 text-left text-xs font-medium text-gray-700 transition-colors hover:border-brand-300 hover:text-brand-600 dark:border-gray-700 dark:text-gray-300"
-                                >
-                                  <span>{cat.name}</span>
-                                  <span className="text-gray-400">{(cat.assets || []).length}</span>
-                                </button>
-                              ))}
-                            </div>
-                          ) : (
-                            (() => {
-                              const cat = libraryCategories.find((c) => c.id === decoPickerCatId)
-                              const assets = cat?.assets || []
-                              return (
-                                <>
-                                  <button
-                                    type="button"
-                                    onClick={() => setDecoPickerCatId(null)}
-                                    className="flex items-center gap-1 text-xs font-medium text-brand-600 dark:text-brand-400"
-                                  >
-                                    <ChevronLeftIcon className="size-3.5" />
-                                    {cat?.name}
-                                  </button>
-                                  {assets.length === 0 ? (
-                                    <p className="text-xs text-gray-400">Vide.</p>
-                                  ) : (
-                                    <div className="grid grid-cols-4 gap-1.5">
-                                      {assets.map((asset) => (
-                                        <button
-                                          key={asset.id}
-                                          type="button"
-                                          onClick={() => addDecoration(asset)}
-                                          title={asset.name || ''}
-                                          className="aspect-square overflow-hidden rounded-md border border-gray-200 bg-white transition-colors hover:border-brand-400 dark:border-gray-700 dark:bg-gray-900"
-                                        >
-                                          <img src={asset.url} alt="" className="h-full w-full object-cover" />
-                                        </button>
-                                      ))}
-                                    </div>
-                                  )}
-                                </>
-                              )
-                            })()
-                          )}
-                        </div>
+                        <LibraryPicker
+                          categories={libraryCategories}
+                          catId={decoPickerCatId}
+                          onCatId={setDecoPickerCatId}
+                          onPick={addDecoration}
+                          emptyLabel="La Bibliothèque est vide — téléversez-y une texture d’abord."
+                        />
                       )}
                     </div>
 
@@ -3286,12 +3220,15 @@ function ScreenLayoutCanvas() {
                 ...(screenBg ? backgroundCss(screenBg) : {}),
               }}
             >
-              {screenBg?.pattern === 'torn-paper' && (
+              {seamModeOf(screenBg?.pattern) && (
                 <ZoneSeamMarkers
                   zones={layout.zones || []}
                   color={screenBg.patternColor || '#FFFFFF'}
                   seamsEnabled={screenBg.seamsEnabled}
                   hiddenSeams={screenBg.hiddenSeams}
+                  seamShape={screenBg.seamShape || {}}
+                  seamThickness={screenBg.seamThickness}
+                  mode={seamModeOf(screenBg.pattern)}
                 />
               )}
               {(layout.zones || []).map((zone) => {
@@ -3381,27 +3318,43 @@ function ScreenLayoutCanvas() {
                 const slotActive = (key) =>
                   dropTarget && dropTarget.zoneId === zone.id && dropTarget.key === key
 
+                const zoneClip = previewMode ? clipOf(screenBg, canvasSeams, zone) : null
+                const zoneSpill = zoneClip?.spill
+
                 return previewMode ? (
                   <div
                     key={zone.id}
-                    className="absolute flex flex-col overflow-hidden rounded-md border border-gray-700 p-1"
+                    className={`absolute flex flex-col rounded-md border border-gray-700 p-1 ${zoneClip ? '' : 'overflow-hidden'}`}
                     style={{
                       left: pct(zone.x),
                       top: pct(zone.y),
                       width: pct(zone.w),
                       height: pct(zone.h),
-                      backgroundColor: zStyle.bgImage ? undefined : zBg,
                       color: zText,
                       fontSize: zFontSize || 12,
                     }}
                   >
-                    {zStyle.bgImage ? (
-                      <img
-                        src={zStyle.bgImage}
-                        alt=""
-                        className="absolute inset-0 h-full w-full object-cover"
-                      />
-                    ) : null}
+                    {/* Peinture de la zone : elle déborde du rectangle et se
+                        coupe sur la déchirure quand celle-ci est courbée. */}
+                    <div
+                      className="absolute overflow-hidden"
+                      style={{
+                        top: zoneSpill ? `${-zoneSpill.top}%` : 0,
+                        right: zoneSpill ? `${-zoneSpill.right}%` : 0,
+                        bottom: zoneSpill ? `${-zoneSpill.bottom}%` : 0,
+                        left: zoneSpill ? `${-zoneSpill.left}%` : 0,
+                        backgroundColor: zStyle.bgImage ? undefined : zBg,
+                        clipPath: zoneClip?.clipPath,
+                      }}
+                    >
+                      {zStyle.bgImage ? (
+                        <img
+                          src={zStyle.bgImage}
+                          alt=""
+                          className="absolute inset-0 h-full w-full object-cover"
+                        />
+                      ) : null}
+                    </div>
                     <div className="relative z-10 flex min-h-0 flex-1 flex-col">
                       {(zone.zoneType === 'grid' || zone.zoneType === 'list' || zone.zoneType === 'menu' || zone.zoneType === 'carousel') &&
                       zone.name ? (
@@ -4076,12 +4029,21 @@ function ScreenLayoutCanvas() {
         <div className="space-y-5">
           <div className="relative aspect-video w-full overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700">
             <div className="absolute inset-0" style={backgroundCss(bgForm)} />
-            {bgForm?.pattern === 'torn-paper' && (
+            {seamModeOf(bgForm?.pattern) && (
               <ZoneSeamMarkers
                 zones={layout?.zones || []}
                 color={bgForm?.patternColor || '#FFFFFF'}
                 seamsEnabled={bgForm?.seamsEnabled}
                 hiddenSeams={bgForm?.hiddenSeams || []}
+                seamShape={bgForm?.seamShape || {}}
+                seamThickness={bgForm?.seamThickness}
+                mode={seamModeOf(bgForm?.pattern)}
+                onShape={(key, shape) =>
+                  setBgForm((prev) => ({
+                    ...(prev || BG_DEFAULTS),
+                    seamShape: { ...(prev?.seamShape || {}), [key]: shape },
+                  }))
+                }
                 onToggle={(key) =>
                   setBgForm((prev) => {
                     const hidden = prev?.hiddenSeams || []
@@ -4098,6 +4060,10 @@ function ScreenLayoutCanvas() {
             {(layout?.zones || []).map((z) => {
               const bs = z.backgroundStyle || {}
               const miniBg = bs.bg
+              // Même découpe que sur la TV : on voit tout de suite quelle zone
+              // mange l'autre en tirant la déchirure.
+              const miniClip = clipOf(bgForm, bgFormSeams, z)
+              const miniSpill = miniClip?.spill
               return (
                 <button
                   key={z.id}
@@ -4108,12 +4074,24 @@ function ScreenLayoutCanvas() {
                     setPanelTab('style')
                   }}
                   title={`Cliquer pour régler le fond de « ${z.name || `Zone ${z.id}`} »`}
-                  className="absolute cursor-pointer overflow-hidden border border-dashed border-brand-400/80 text-left transition-colors hover:border-brand-500 hover:bg-brand-500/10"
-                  style={{ left: gpt(z.x), top: gpt(z.y), width: gpt(z.w), height: gpt(z.h), backgroundColor: miniBg || undefined }}
+                  className={`absolute cursor-pointer border border-dashed border-brand-400/80 text-left transition-colors hover:border-brand-500 hover:bg-brand-500/10 ${miniClip ? '' : 'overflow-hidden'}`}
+                  style={{ left: gpt(z.x), top: gpt(z.y), width: gpt(z.w), height: gpt(z.h) }}
                 >
-                  {bs.bgImage ? (
-                    <img src={bs.bgImage} alt="" className="absolute inset-0 h-full w-full object-cover opacity-90" />
-                  ) : null}
+                  <span
+                    className="absolute block overflow-hidden"
+                    style={{
+                      top: miniSpill ? `${-miniSpill.top}%` : 0,
+                      right: miniSpill ? `${-miniSpill.right}%` : 0,
+                      bottom: miniSpill ? `${-miniSpill.bottom}%` : 0,
+                      left: miniSpill ? `${-miniSpill.left}%` : 0,
+                      backgroundColor: miniBg || undefined,
+                      clipPath: miniClip?.clipPath,
+                    }}
+                  >
+                    {bs.bgImage ? (
+                      <img src={bs.bgImage} alt="" className="absolute inset-0 h-full w-full object-cover opacity-90" />
+                    ) : null}
+                  </span>
                   <span className="absolute right-0 top-0 rounded-bl bg-black/50 px-1 text-[9px] font-medium leading-tight text-white">
                     {z.name || `Zone ${z.id}`}
                   </span>
@@ -4124,6 +4102,14 @@ function ScreenLayoutCanvas() {
           <p className="-mt-3 text-xs text-gray-400 dark:text-gray-500">
             Cliquez une zone pour régler son fond (couleur, image, texte). Une zone sans
             fond reste transparente : on voit le fond d’écran derrière.
+            {seamModeOf(bgForm?.pattern) ? (
+              <>
+                {' '}
+                Les déchirures se règlent à la souris : glissez la ligne n’importe où et
+                elle se courbe à cet endroit, Maj+glisser la déplace en entier, et un clic
+                sans bouger la masque.
+              </>
+            ) : null}
           </p>
 
           <div>
@@ -4137,6 +4123,16 @@ function ScreenLayoutCanvas() {
                 {bgUploading ? 'Upload...' : 'Importer une image'}
                 <input type="file" accept="image/*" className="hidden" onChange={handleBgUpload} disabled={bgUploading} />
               </label>
+              <button
+                type="button"
+                onClick={() => {
+                  setScreenBgLibCatId(null)
+                  setScreenBgLibOpen((v) => !v)
+                }}
+                className="rounded-lg border border-dashed border-gray-300 px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:border-brand-300 hover:text-brand-600 dark:border-gray-700 dark:text-gray-300 dark:hover:text-brand-400"
+              >
+                Bibliothèque
+              </button>
               {bgForm?.imageUrl && (
                 <button
                   type="button"
@@ -4152,6 +4148,18 @@ function ScreenLayoutCanvas() {
                 src={bgForm.imageUrl}
                 alt="Aperçu du fond"
                 className="mt-2 h-24 w-full rounded-lg border border-gray-200 object-cover dark:border-gray-700"
+              />
+            )}
+            {screenBgLibOpen && (
+              <LibraryPicker
+                className="mt-2"
+                categories={libraryCategories}
+                catId={screenBgLibCatId}
+                onCatId={setScreenBgLibCatId}
+                onPick={(asset) => {
+                  setBgForm((prev) => ({ ...(prev || BG_DEFAULTS), type: 'image', imageUrl: asset.url }))
+                  setScreenBgLibOpen(false)
+                }}
               />
             )}
           </div>
@@ -4174,7 +4182,7 @@ function ScreenLayoutCanvas() {
             </div>
             {bgForm?.pattern === 'torn-paper' && (
               <div>
-                <Label>Couleur de la déchirure</Label>
+                <Label>Couleur de la bande</Label>
                 <div className="flex items-center gap-2">
                   <input
                     type="color"
@@ -4188,11 +4196,11 @@ function ScreenLayoutCanvas() {
             )}
           </div>
 
-          {bgForm?.pattern === 'torn-paper' && (
+          {seamModeOf(bgForm?.pattern) && (
             <div className="space-y-3 rounded-lg border border-gray-200 p-3 dark:border-gray-700">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <Label>Lignes papier déchiré</Label>
+                  <Label>{bgForm?.pattern === 'torn-edge' ? 'Bords déchirés' : 'Lignes papier déchiré'}</Label>
                   <p className="text-xs text-gray-400">Jointures entre zones adjacentes</p>
                 </div>
                 <button
@@ -4208,6 +4216,27 @@ function ScreenLayoutCanvas() {
                   />
                 </button>
               </div>
+              <div>
+                <Label htmlFor="bg-seam-thickness">
+                  {bgForm?.pattern === 'torn-edge' ? 'Force de la déchirure' : 'Épaisseur du papier'}
+                </Label>
+                <div className="flex items-center gap-3">
+                  <input
+                    id="bg-seam-thickness"
+                    type="range"
+                    min={SEAM_THICKNESS_MIN}
+                    max={SEAM_THICKNESS_MAX}
+                    value={seamThicknessValue(bgForm?.seamThickness)}
+                    onChange={(e) =>
+                      setBgForm((prev) => ({ ...(prev || BG_DEFAULTS), seamThickness: Number(e.target.value) }))
+                    }
+                    className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-gray-200 accent-brand-500 dark:bg-gray-700"
+                  />
+                  <span className="w-10 shrink-0 text-right text-xs text-gray-500 dark:text-gray-400">
+                    {seamThicknessValue(bgForm?.seamThickness)}px
+                  </span>
+                </div>
+              </div>
               {(() => {
                 const { v, h } = computeSeamsAdmin(layout?.zones || [])
                 const all = [...v, ...h]
@@ -4222,10 +4251,28 @@ function ScreenLayoutCanvas() {
                   <ul className="space-y-1.5">
                     {all.map((s) => {
                       const isHidden = hidden.includes(s.key)
+                      const shape = seamShapeValue((bgForm?.seamShape || {})[s.key])
+                      const shaped = shape.a !== 0 || shape.b !== 0 || shape.c !== 0
                       return (
                         <li key={s.key} className="flex items-center justify-between gap-2">
                           <span className={`text-xs ${isHidden ? 'text-gray-400 line-through' : 'text-gray-700 dark:text-white/80'}`}>
                             {seamLabel(s)}
+                            {shaped ? (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setBgForm((prev) => {
+                                    const map = { ...(prev?.seamShape || {}) }
+                                    delete map[s.key]
+                                    return { ...(prev || BG_DEFAULTS), seamShape: map }
+                                  })
+                                }
+                                className="ml-1.5 font-medium text-brand-600 hover:underline dark:text-brand-400"
+                                title="Remettre la déchirure droite"
+                              >
+                                Redresser
+                              </button>
+                            ) : null}
                           </span>
                           <button
                             type="button"

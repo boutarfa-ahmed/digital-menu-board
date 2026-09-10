@@ -5,7 +5,8 @@
 // pixel-perfect across TVs with slightly different resolutions.
 import { useEffect, useState } from 'react'
 import Background from '../ui/Background.jsx'
-import ZoneSeams, { zoneSeamEdges } from '../ui/ZoneSeams.jsx'
+import ZoneSeams from '../ui/ZoneSeams.jsx'
+import { zoneSeamEdges, computeSeams, zoneSeamClip, seamModeOf } from '../../shared/menuSchema'
 import FreeElementsLayer from './FreeElementsLayer.jsx'
 import { themeToCssVars } from '../../theme/designTokens'
 import ZoneRenderer from '../zones/ZoneRenderer.jsx'
@@ -38,8 +39,13 @@ export default function ScreenRenderer({ layout }) {
   // clears the torn-paper band ZoneSeams draws on top (z-30) of it — see
   // ZoneRenderer. Same on/off + hidden-seam rules as ZoneSeams itself, so a
   // zone never insets for a seam that isn't actually being drawn.
-  const seamsOn = layout?.settings?.background?.pattern === 'torn-paper' && layout.settings.background.seamsEnabled !== false
-  const seamEdgesByZone = seamsOn ? zoneSeamEdges(zones, layout.settings.background.hiddenSeams) : {}
+  const seamMode = seamModeOf(layout?.settings?.background?.pattern)
+  const seamsOn = !!seamMode && layout.settings.background.seamsEnabled !== false
+  const bgSeams = seamsOn ? computeSeams(zones) : null
+  // Le contenu ne s'écarte du bord que sous une BANDE : sans elle, les zones se
+  // touchent simplement et n'ont rien à dégager.
+  const seamEdgesByZone =
+    seamsOn && seamMode === 'band' ? zoneSeamEdges(zones, layout.settings.background.hiddenSeams, bgSeams) : {}
 
   return (
     <div className="flex h-screen w-screen items-center justify-center overflow-hidden bg-black">
@@ -73,15 +79,30 @@ export default function ScreenRenderer({ layout }) {
                 theme={layout?.theme}
                 settings={layout?.settings}
                 seamEdges={seamEdgesByZone[zone.id]}
+                seamClip={
+                  bgSeams
+                    ? zoneSeamClip(
+                        zone,
+                        bgSeams,
+                        layout.settings.background.seamShape,
+                        layout.settings.background.seamThickness,
+                        layout.settings.background.hiddenSeams,
+                        seamMode
+                      )
+                    : null
+                }
               />
             </div>
           ))}
-          {layout?.settings?.background?.pattern === 'torn-paper' && (
+          {seamsOn && (
             <ZoneSeams
               zones={zones}
               patternColor={layout.settings.background.patternColor || '#FFFFFF'}
               seamsEnabled={layout.settings.background.seamsEnabled}
               hiddenSeams={layout.settings.background.hiddenSeams}
+              seamShape={layout.settings.background.seamShape}
+              seamThickness={layout.settings.background.seamThickness}
+              mode={seamMode}
             />
           )}
         </div>

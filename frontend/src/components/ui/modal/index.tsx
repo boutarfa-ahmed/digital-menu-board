@@ -51,10 +51,19 @@ export const Modal: React.FC<ModalProps> = ({
 
   const contentClasses = isFullscreen
     ? "relative z-10 w-full h-full bg-white dark:bg-gray-900"
-    : "relative w-full rounded-3xl bg-white  dark:bg-gray-900";
+    : "relative my-auto w-full rounded-3xl bg-white  dark:bg-gray-900";
+
+  // Une modale plus haute que l'écran : la centrer avec `items-center` fait
+  // déborder son haut *au-dessus* du conteneur, et ce haut devient
+  // inatteignable au défilement. On aligne donc en haut ; `my-auto` sur le
+  // contenu la recentre tant qu'il reste de la place, donc rien ne bouge pour
+  // les modales courtes.
+  const wrapperClasses = isFullscreen
+    ? "fixed inset-0 flex items-start justify-center overflow-y-auto modal z-99999"
+    : "fixed inset-0 flex items-start justify-center overflow-y-auto py-6 modal z-99999";
 
   return (
-    <div className="fixed inset-0 flex items-center justify-center overflow-y-auto modal z-99999">
+    <div className={wrapperClasses}>
       <div
         className="fixed inset-0 h-full w-full bg-gray-400/50"
         onClick={onClose}

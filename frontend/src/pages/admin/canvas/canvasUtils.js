@@ -12,37 +12,10 @@ export const clamp = (n, min, max) => Math.max(min, Math.min(max, n))
 
 export const gpt = (g) => `${(g * 100) / 12}%`
 
-// Torn-paper dividers between adjacent zones (mirrors frontend-tv ZoneSeams).
-// Keys must match the TV: `${type}:${pos}:${a}:${span}`. `onToggle` (when
-// provided) makes lines clickable in the Fond preview to hide them per line;
-// otherwise markers are display-only (pointer-events none).
-export function computeSeamsAdmin(zones) {
-  const v = []
-  const h = []
-  const push = (list, type, pos, a, span) => {
-    const key = `${type}:${pos}:${a}:${span}`
-    if (!list.some((x) => x.key === key)) list.push({ pos, a, span, key })
-  }
-  for (let i = 0; i < zones.length; i++) {
-    for (let j = 0; j < i; j++) {
-      const a = zones[i]
-      const b = zones[j]
-      const yTop = Math.max(a.y, b.y)
-      const ySpan = Math.min(a.y + a.h, b.y + b.h) - yTop
-      const xLeft = Math.max(a.x, b.x)
-      const xSpan = Math.min(a.x + a.w, b.x + b.w) - xLeft
-      if (ySpan > 0) {
-        if (a.x + a.w === b.x) push(v, 'v', b.x, yTop, ySpan)
-        if (b.x + b.w === a.x) push(v, 'v', a.x, yTop, ySpan)
-      }
-      if (xSpan > 0) {
-        if (a.y + a.h === b.y) push(h, 'h', b.y, xLeft, xSpan)
-        if (b.y + b.h === a.y) push(h, 'h', a.y, xLeft, xSpan)
-      }
-    }
-  }
-  return { v, h }
-}
+// Les jointures se calculent dans le schéma partagé : le builder et la TV
+// doivent tomber sur exactement les mêmes lignes et les mêmes clés (hiddenSeams,
+// seamShape sont indexés dessus).
+export { computeSeams as computeSeamsAdmin } from '../../../shared/menuSchema'
 
 export const seamLabel = (s) => {
   if (s.key.startsWith('v')) {
