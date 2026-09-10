@@ -872,6 +872,113 @@ function elementTextStyle(el) {
   }
 }
 
+// Texte courbé — un texte simple ou un titre héro peut se poser sur un arc de
+// cercle au lieu d'une ligne droite. `curve` se lit en pourcentage de
+// demi-cercle :
+//   0    ligne droite (aucun arc : le texte reste du texte normal)
+//   100  le texte fait exactement un demi-cercle
+//   200  le texte fait presque le tour complet du cercle
+// Négatif = l'arc se creuse vers le bas (∪) au lieu de bomber vers le haut (∩).
+const EL_CURVE_MAX = 200
+
+// Vide gardé entre la dernière lettre et la première quand le texte se referme
+// en cercle, en hauteurs de police. Sans lui le texte se mord la queue : à
+// courbure maximale le « D » de la fin venait se coller au « G » du début, les
+// deux se confondaient en une tache et on ne lisait plus ni l'un ni l'autre.
+// Un cercle vraiment fermé n'a d'ailleurs plus de corde du tout — ses deux
+// extrémités au même point, et le navigateur ne dessine plus rien.
+const CURVE_END_GAP = 0.7
+
+// Rayon minimal quand l'arc se creuse (∪), en hauteurs de police.
+//
+// Les deux sens ne sont pas symétriques, et c'est la géométrie qui décide, pas
+// un choix : bombé (∩) les lettres pointent vers l'extérieur du cercle, leurs
+// sommets sont sur un cercle plus grand que leur pied et elles s'aèrent ;
+// creusé (∪) elles pointent vers le centre, leurs sommets sont sur un cercle
+// plus petit et elles se rentrent dedans. À rayon égal, un ∩ respire là où un
+// ∪ se referme.
+//
+// Le sommet d'une lettre est à peu près à 0,72 hauteur de police de son pied :
+// à ce rayon il lui reste ~70% de son espacement, ce qui est le point où les
+// lettres se touchent sans encore se chevaucher. Au-delà le mot devient une
+// tache, donc la courbure s'arrête là — et comme la limite se calcule sur la
+// longueur du texte, une phrase longue se creuse bien plus qu'un mot court
+// avant de l'atteindre.
+const CURVE_MIN_RADIUS_DOWN = 2.4
+
+function elementCurve(el) {
+  const v = Number(el?.curve)
+  if (!Number.isFinite(v)) return 0
+  return Math.max(-EL_CURVE_MAX, Math.min(EL_CURVE_MAX, Math.round(v)))
+}
+
+// L'arc sur lequel poser le texte, en px, prêt à devenir un <svg><textPath>.
+//
+// `textWidth` est la largeur que ce texte occuperait en ligne droite, mesurée
+// dans le navigateur avec sa vraie police : c'est elle qui devient la LONGUEUR
+// de l'arc. Les lettres gardent donc exactement leur taille et leur
+// espacement — seule leur orientation change — et le texte remplit l'arc pile,
+// quel que soit le nombre de caractères.
+//
+// Rayon = longueur / angle : plus la courbure demandée est forte, plus le
+// cercle est petit, donc plus le texte s'enroule. Retourne null quand il n'y a
+// rien à courber (courbure nulle, ou largeur pas encore mesurée).
+function curvedTextGeometry(curve, textWidth, fontSize) {
+  const c = Math.max(-EL_CURVE_MAX, Math.min(EL_CURVE_MAX, Number(curve) || 0))
+  const len = Number(textWidth)
+  if (c === 0 || !Number.isFinite(len) || len <= 0) return null
+
+  // Les lettres débordent de la ligne de base, vers le haut (hampes) comme vers
+  // le bas (jambages), et aux extrémités d'un arc serré elles sont couchées :
+  // ce débordement se compte alors en largeur. Une marge un peu plus grande
+  // qu'une hauteur de police tout autour couvre les deux cas, sinon la boîte
+  // annoncée serait plus petite que le dessin et le centrage tomberait à côté.
+  const font = Math.max(1, Number(fontSize) || 24)
+  const pad = font * 1.25
+  const up = c > 0
+  // Deux garde-fous, tous les deux fonction du texte lui-même — c'est pour ça
+  // qu'ils vivent ici et pas dans les bornes du réglage : « le tour complet »
+  // ne veut pas dire le même angle pour deux mots de longueurs différentes.
+  const closed = (2 * Math.PI * len) / (len + CURVE_END_GAP * font)
+  const readable = up ? Infinity : len / (CURVE_MIN_RADIUS_DOWN * font)
+  const angle = Math.min((Math.abs(c) / 100) * Math.PI, closed, readable)
+  // Rayon = longueur / angle. L'arc mesure donc exactement la largeur du texte,
+  // ni plus ni moins : un arc plus court amputerait la première et la dernière
+  // lettre (le navigateur coupe ce qui dépasse du tracé), un arc plus long
+  // laisserait le texte flotter au milieu. Les sommets des lettres, eux, sont
+  // sur un cercle un peu plus grand (∩) ou un peu plus petit (∪) que la ligne
+  // de base : ils s'écartent ou se resserrent, c'est la géométrie même du texte
+  // courbé — c'est en baissant la courbure qu'on desserre un ∪ trop fermé.
+  const radius = len / angle
+  const half = angle / 2
+  // Au-delà du demi-cercle, l'arc déborde de ses propres extrémités : c'est le
+  // cercle entier qui donne la largeur.
+  const halfW = angle >= Math.PI ? radius : radius * Math.sin(half)
+  // Flèche de l'arc : du sommet (toujours atteint) jusqu'à la corde.
+  const depth = radius * (1 - Math.cos(half))
+
+  const cx = halfW + pad
+  const dx = radius * Math.sin(half)
+  // y de la corde. Sommet en haut (∩) : la corde est en dessous. Sommet en bas
+  // (∪) : la corde est la ligne du haut.
+  const y = up ? pad + depth : pad
+  const round2 = (n) => Math.round(n * 100) / 100
+  const largeArc = angle > Math.PI ? 1 : 0
+  // Sens de parcours : on lit toujours de gauche à droite, en passant par le
+  // sommet pour ∩ (sens horaire) et par le creux pour ∪ (sens inverse).
+  const sweep = up ? 1 : 0
+
+  return {
+    path:
+      `M ${round2(cx - dx)} ${round2(y)} ` +
+      `A ${round2(radius)} ${round2(radius)} 0 ${largeArc} ${sweep} ${round2(cx + dx)} ${round2(y)}`,
+    width: round2(2 * (halfW + pad)),
+    height: round2(depth + 2 * pad),
+    radius: round2(radius),
+    angle: angle,
+  }
+}
+
 // Écart entre le mot et ses filets quand l'élément n'en fixe aucun : l'ancien
 // `gap-4` de la TV, en dur. Un séparateur déjà enregistré garde donc exactement
 // l'espacement qu'il avait.
@@ -1967,6 +2074,9 @@ function validateElementsConfig(elements) {
     if (el.color !== undefined && !isColor(el.color)) {
       errors.push(`${p}.color must be a valid color`)
     }
+    if (el.curve !== undefined && (!isNum(el.curve) || el.curve < -EL_CURVE_MAX || el.curve > EL_CURVE_MAX)) {
+      errors.push(`${p}.curve must be a number between ${-EL_CURVE_MAX} and ${EL_CURVE_MAX}`)
+    }
     // Réglages des éléments dessinés (image/logo/icône). Tous facultatifs :
     // absents, elementVisualStyle() retombe sur l'ancien rendu.
     if (el.align !== undefined && !CARD_ALIGNS.includes(el.align)) {
@@ -2272,6 +2382,9 @@ module.exports = {
   cssUrl,
   elementVisualStyle,
   elementTextStyle,
+  EL_CURVE_MAX,
+  elementCurve,
+  curvedTextGeometry,
   DIVIDER_GAP_FALLBACK,
   elementDividerStyle,
   defaultZoneLayout,

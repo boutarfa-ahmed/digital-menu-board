@@ -46,6 +46,7 @@ import {
   DECORATION_SIZE_FALLBACK,
 } from '../../shared/menuSchema'
 import ElementVisual from './canvas/ElementVisual'
+import CurvedText from './canvas/CurvedText'
 import DividerVisual from './canvas/DividerVisual'
 import {
   GRID,
@@ -88,7 +89,7 @@ import {
   EL_RESIZE_HANDLES,
 } from './canvas/constants'
 import { TORN_CLIP } from './canvas/tornPaper'
-import { elementTextStyle } from '../../shared/menuSchema'
+import { elementTextStyle, elementCurve, EL_CURVE_MAX } from '../../shared/menuSchema'
 import {
   overlaps,
   clamp,
@@ -2800,6 +2801,64 @@ function ScreenLayoutCanvas() {
                             </div>
                           )}
 
+                          {/* Courbure : la même idée qu'un alignement, mais sur
+                              un arc. 0 = la ligne droite d'aujourd'hui, 100 = le
+                              texte fait exactement un demi-cercle, au-delà il
+                              continue de s'enrouler. Négatif = l'arc se creuse
+                              vers le bas. La longueur de l'arc est celle du
+                              texte : la phrase remplit toujours l'arc, quelle
+                              que soit sa longueur. */}
+                          {['plain', 'hero'].includes(selectedElement.kind || 'plain') && (
+                            <div>
+                              <div className="flex items-center justify-between">
+                                <Label htmlFor={`el-curve-${selectedElement.id}`}>Courbure</Label>
+                                <span className="text-xs text-gray-500 dark:text-gray-400">
+                                  {elementCurve(selectedElement) === 0
+                                    ? 'ligne droite'
+                                    : `${elementCurve(selectedElement)} % de demi-cercle`}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <input
+                                  id={`el-curve-${selectedElement.id}`}
+                                  type="range"
+                                  min={-EL_CURVE_MAX}
+                                  max={EL_CURVE_MAX}
+                                  step="1"
+                                  value={elementCurve(selectedElement)}
+                                  onChange={(e) =>
+                                    patchElementById(selectedElement.id, {
+                                      curve: Number(e.target.value) || 0,
+                                    })
+                                  }
+                                  className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-gray-200 accent-brand-500 dark:bg-gray-700"
+                                />
+                                <input
+                                  type="number"
+                                  min={-EL_CURVE_MAX}
+                                  max={EL_CURVE_MAX}
+                                  value={elementCurve(selectedElement)}
+                                  onChange={(e) =>
+                                    patchElementById(selectedElement.id, {
+                                      curve: clamp(Number(e.target.value) || 0, -EL_CURVE_MAX, EL_CURVE_MAX),
+                                    })
+                                  }
+                                  className="h-9 w-16 shrink-0 rounded-lg border border-gray-300 bg-transparent px-2 text-sm text-gray-800 outline-none focus:border-brand-300 dark:border-gray-700 dark:text-white/90"
+                                />
+                                {elementCurve(selectedElement) !== 0 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => patchElementById(selectedElement.id, { curve: undefined })}
+                                    title="Revenir à la ligne droite"
+                                    className="shrink-0 rounded border border-gray-200 px-1.5 py-0.5 text-[10px] text-gray-500 hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-800"
+                                  >
+                                    ↺
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          )}
+
                           {/* Même champ que la marge d'une icône (`padding`), au
                               même format % : sur un séparateur, cette marge est
                               l'air laissé entre le mot et ses deux filets. */}
@@ -3832,16 +3891,28 @@ function ScreenLayoutCanvas() {
                       {el.type === 'text' && el.kind === 'divider' ? (
                         <DividerVisual el={el} />
                       ) : el.type === 'text' ? (
-                        <div
-                          className="flex h-full w-full items-center overflow-hidden"
-                          style={{
-                            ...elementTextStyle(el),
+                        (() => {
+                          const textAlign = elementTextStyle(el)
+                          const curve = elementCurve(el)
+                          const textStyle = {
+                            textAlign: textAlign.textAlign,
                             color: el.color || '#fff',
                             fontSize: Math.min(el.fontSize || 24, 48),
-                          }}
-                        >
-                          {el.text}
-                        </div>
+                            fontFamily: el.fontFamily || undefined,
+                          }
+                          return (
+                            <div
+                              className={`flex h-full w-full items-center ${curve ? '' : 'overflow-hidden'}`}
+                              style={{ justifyContent: textAlign.justifyContent }}
+                            >
+                              {curve ? (
+                                <CurvedText text={el.text} curve={curve} style={textStyle} />
+                              ) : (
+                                <span style={textStyle}>{el.text}</span>
+                              )}
+                            </div>
+                          )
+                        })()
                       ) : el.imageUrl ? (
                         <ElementVisual el={el} />
                       ) : (
