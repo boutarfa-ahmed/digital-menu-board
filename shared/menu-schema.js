@@ -865,6 +865,40 @@ export function elementTextStyle(el) {
   }
 }
 
+// Écart entre le mot et ses filets quand l'élément n'en fixe aucun : l'ancien
+// `gap-4` de la TV, en dur. Un séparateur déjà enregistré garde donc exactement
+// l'espacement qu'il avait.
+export const DIVIDER_GAP_FALLBACK = 16
+
+// Le séparateur : un filet, le mot, un filet. Les deux rendus (aperçu du
+// builder, TV) passent par ici pour tracer le même trait.
+//
+// L'écart réutilise `padding`, la marge que tout élément porte déjà — même
+// champ, même idée (de l'air autour du contenu), donc pas de second réglage à
+// tenir en phase. Il s'exprime en % de la largeur de la boîte : l'écart suit
+// l'élément quand on le redimensionne, au lieu de rester un nombre de pixels
+// qui ne veut plus rien dire une fois le séparateur deux fois plus large.
+//
+// Les filets prennent la couleur choisie telle quelle. Ils étaient tracés à 60%
+// d'opacité par-dessus, ce qui délavait la couleur et la rendait impossible à
+// viser : pour atténuer un séparateur il y a déjà `opacity` sur l'élément, et
+// une couleur plus douce se choisit dans le sélecteur.
+export function elementDividerStyle(el) {
+  const e = el || {}
+  const color = e.color || '#FFFFFF'
+  const fontSize = Math.min(Number(e.fontSize) || 24, FONT_SIZE_MAX_TEXT)
+  const padNum = Number(e.padding)
+  const hasPad = Number.isFinite(padNum)
+  return {
+    gap: hasPad ? Math.max(0, Math.min(EL_PADDING_MAX, padNum)) + '%' : DIVIDER_GAP_FALLBACK + 'px',
+    // L'épaisseur du filet suit la taille du texte : un mot de 12px mérite un
+    // trait plus fin qu'un mot de 90px. Jamais moins de 2px, en dessous le
+    // trait disparaît sur un écran qui met à l'échelle.
+    line: { backgroundColor: color, height: Math.max(2, Math.round(fontSize / 12)) },
+    text: { fontSize: fontSize, color: color, lineHeight: 1.4 },
+  }
+}
+
 
 // ---------------------------------------------------------------------------
 // DISPOSITION DE LA ZONE

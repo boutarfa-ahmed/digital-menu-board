@@ -46,6 +46,7 @@ import {
   DECORATION_SIZE_FALLBACK,
 } from '../../shared/menuSchema'
 import ElementVisual from './canvas/ElementVisual'
+import DividerVisual from './canvas/DividerVisual'
 import {
   GRID,
   REQUIRES_GRID,
@@ -2799,6 +2800,33 @@ function ScreenLayoutCanvas() {
                             </div>
                           )}
 
+                          {/* Même champ que la marge d'une icône (`padding`), au
+                              même format % : sur un séparateur, cette marge est
+                              l'air laissé entre le mot et ses deux filets. */}
+                          {selectedElement.kind === 'divider' && (
+                            <div>
+                              <Label htmlFor={`el-pad-${selectedElement.id}`}>
+                                Écart mot / filets (%, max {EL_PADDING_MAX})
+                              </Label>
+                              <Input
+                                id={`el-pad-${selectedElement.id}`}
+                                type="number"
+                                min="0"
+                                max={EL_PADDING_MAX}
+                                value={selectedElement.padding ?? ''}
+                                placeholder="Par défaut"
+                                onChange={(e) =>
+                                  patchElementById(selectedElement.id, {
+                                    padding:
+                                      e.target.value === ''
+                                        ? undefined
+                                        : clamp(Number(e.target.value) || 0, 0, EL_PADDING_MAX),
+                                  })
+                                }
+                              />
+                            </div>
+                          )}
+
                           {['banner', 'price'].includes(selectedElement.kind) && (
                             <div>
                               <Label>Fond</Label>
@@ -3801,7 +3829,9 @@ function ScreenLayoutCanvas() {
                         zIndex: 100 + (el.zIndex ?? 10),
                       }}
                     >
-                      {el.type === 'text' ? (
+                      {el.type === 'text' && el.kind === 'divider' ? (
+                        <DividerVisual el={el} />
+                      ) : el.type === 'text' ? (
                         <div
                           className="flex h-full w-full items-center overflow-hidden"
                           style={{

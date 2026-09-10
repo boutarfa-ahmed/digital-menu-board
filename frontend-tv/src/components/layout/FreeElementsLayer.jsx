@@ -7,7 +7,7 @@
 import CategoryBanner from '../primitives/CategoryBanner.jsx'
 import PriceBadge from '../primitives/PriceBadge.jsx'
 import { badgeTypeOf } from '../../theme/designTokens'
-import { elementVisualStyle, elementTextStyle } from '../../shared/menuSchema'
+import { elementVisualStyle, elementTextStyle, elementDividerStyle } from '../../shared/menuSchema'
 
 export default function FreeElementsLayer({ elements }) {
   if (!elements || elements.length === 0) return null
@@ -68,25 +68,18 @@ export default function FreeElementsLayer({ elements }) {
           }
 
           if (kind === 'divider') {
-            const lineColor = el.color || '#FFFFFF'
-            const lineW = Math.max(2, Math.round((cap(el.fontSize) || 24) / 12))
+            const divider = elementDividerStyle(el)
             return (
               <div key={el.id} style={box}>
-                <div className="flex h-full w-full items-center gap-4 overflow-hidden">
-                  <span
-                    className="min-w-0 flex-1"
-                    style={{ backgroundColor: lineColor, opacity: 0.6, height: lineW }}
-                  />
-                  <span
-                    className="shrink-0 whitespace-nowrap font-menu-divider"
-                    style={{ fontSize: cap(el.fontSize) || 24, color: lineColor, lineHeight: 1.4 }}
-                  >
+                <div
+                  className="flex h-full w-full items-center overflow-hidden"
+                  style={{ gap: divider.gap }}
+                >
+                  <span className="min-w-0 flex-1" style={divider.line} />
+                  <span className="shrink-0 whitespace-nowrap font-menu-divider" style={divider.text}>
                     {el.text}
                   </span>
-                  <span
-                    className="min-w-0 flex-1"
-                    style={{ backgroundColor: lineColor, opacity: 0.6, height: lineW }}
-                  />
+                  <span className="min-w-0 flex-1" style={divider.line} />
                 </div>
               </div>
             )
