@@ -889,6 +889,13 @@ export const EL_CURVE_MAX = 200
 // extrémités au même point, et le navigateur ne dessine plus rien.
 const CURVE_END_GAP = 0.7
 
+// Mou laissé sur le tracé, en plus de la largeur du texte. Le navigateur ne
+// dessine pas une lettre dont le milieu tombe hors du chemin : tracé et texte
+// faisant exactement la même longueur, un arrondi au centième suffirait à
+// escamoter la première et la dernière. Le texte étant centré sur son arc, ce
+// mou se partage en deux bouts invisibles à ses extrémités.
+const CURVE_SLACK = 0.02
+
 // Rayon minimal quand l'arc se creuse (∪), en hauteurs de police.
 //
 // Les deux sens ne sont pas symétriques, et c'est la géométrie qui décide, pas
@@ -925,8 +932,9 @@ export function elementCurve(el) {
 // rien à courber (courbure nulle, ou largeur pas encore mesurée).
 export function curvedTextGeometry(curve, textWidth, fontSize) {
   const c = Math.max(-EL_CURVE_MAX, Math.min(EL_CURVE_MAX, Number(curve) || 0))
-  const len = Number(textWidth)
-  if (c === 0 || !Number.isFinite(len) || len <= 0) return null
+  const measured = Number(textWidth)
+  if (c === 0 || !Number.isFinite(measured) || measured <= 0) return null
+  const len = measured * (1 + CURVE_SLACK)
 
   // Les lettres débordent de la ligne de base, vers le haut (hampes) comme vers
   // le bas (jambages), et aux extrémités d'un arc serré elles sont couchées :

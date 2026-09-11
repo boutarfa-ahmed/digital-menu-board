@@ -6,6 +6,16 @@
 // donc leur taille et leur espacement — seule leur orientation change — et le
 // texte remplit l'arc pile, qu'il fasse trois lettres ou trente.
 //
+// La mesure se fait sur un <text> SVG caché, et surtout PAS avec
+// getBoundingClientRect() : la TV met toute la maquette 1920x1080 à l'échelle
+// de l'écran avec un transform: scale() (voir ScreenRenderer), et un rect
+// renvoie des pixels écran, donc une largeur déjà réduite par ce scale. L'arc
+// serait alors trop court pour son texte, qui déborderait du tracé des deux
+// côtés — et le navigateur ne dessine pas une lettre dont le milieu tombe
+// hors du chemin : sur un écran à 53%, « Nouveau texte » s'affichait
+// « uveu te ». getComputedTextLength() répond lui en unités SVG, celles-là
+// mêmes où le tracé est écrit, et ignore les transformations au-dessus.
+//
 // La géométrie elle-même (rayon, angle, tracé) vient de curvedTextGeometry()
 // du schéma partagé, pour que l'aperçu du builder et la TV dessinent le même
 // arc. Rendu TV correspondant :
@@ -23,8 +33,11 @@ export default function CurvedText({ text, curve, className = '', style = {} }) 
 
   useEffect(() => {
     const node = measureRef.current
-    if (!node) return undefined
-    const update = () => setTextWidth(node.getBoundingClientRect().width || 0)
+    if (!node || typeof node.getComputedTextLength !== 'function') return undefined
+    const update = () => {
+      const w = node.getComputedTextLength() || 0
+      setTextWidth((prev) => (Math.abs(prev - w) < 0.01 ? prev : w))
+    }
     update()
     // La largeur bouge aussi bien quand le texte change que quand la police de
     // la bibliothèque finit de se charger : l'observateur rattrape les deux,
@@ -39,22 +52,19 @@ export default function CurvedText({ text, curve, className = '', style = {} }) 
 
   return (
     <span className="relative inline-flex flex-none items-center justify-center">
-      <span
-        ref={measureRef}
+      {/* Le mètre. Même élément (<text>) et mêmes styles que le rendu final :
+          la casse, l'interlettrage et la coupure des espaces sont donc traités
+          à l'identique, ce qu'un <span> HTML ne garantissait pas. */}
+      <svg
         aria-hidden="true"
-        className={className}
-        style={{
-          ...style,
-          position: 'absolute',
-          left: 0,
-          top: 0,
-          visibility: 'hidden',
-          whiteSpace: 'nowrap',
-          pointerEvents: 'none',
-        }}
+        width="1"
+        height="1"
+        style={{ position: 'absolute', left: 0, top: 0, visibility: 'hidden', pointerEvents: 'none' }}
       >
-        {text}
-      </span>
+        <text ref={measureRef} className={className} style={style}>
+          {text}
+        </text>
+      </svg>
       {geo && (
         <svg
           width={geo.width}
