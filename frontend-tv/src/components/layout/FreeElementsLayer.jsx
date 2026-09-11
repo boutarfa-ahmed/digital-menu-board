@@ -5,9 +5,15 @@
 // element with zIndex < 20 renders behind zones and zIndex >= 20 renders in
 // front. Elements are purely decorative display — never interactive.
 import CategoryBanner from '../primitives/CategoryBanner.jsx'
+import CurvedText from './CurvedText.jsx'
 import PriceBadge from '../primitives/PriceBadge.jsx'
 import { badgeTypeOf } from '../../theme/designTokens'
-import { elementVisualStyle, elementTextStyle, elementDividerStyle } from '../../shared/menuSchema'
+import {
+  elementVisualStyle,
+  elementTextStyle,
+  elementDividerStyle,
+  elementCurve,
+} from '../../shared/menuSchema'
 
 export default function FreeElementsLayer({ elements }) {
   if (!elements || elements.length === 0) return null
@@ -85,27 +91,35 @@ export default function FreeElementsLayer({ elements }) {
             )
           }
 
+          // Texte simple et titre héro peuvent se poser sur un arc : leur
+          // boîte laisse alors déborder, l'arc étant plus grand que la ligne
+          // droite qu'il remplace.
+          const curve = elementCurve(el)
+
           if (kind === 'hero') {
             const textAlign = elementTextStyle(el)
+            const heroClass = 'font-menu-header font-bold uppercase tracking-wide'
+            const heroStyle = {
+              textAlign: textAlign.textAlign,
+              fontSize: cap(el.fontSize) || 64,
+              color: el.color || '#FFFFFF',
+              lineHeight: 1,
+              textShadow: '0 4px 10px rgba(0,0,0,0.45)',
+              fontFamily: el.fontFamily || undefined,
+            }
             return (
               <div key={el.id} style={box}>
                 <div
-                  className="flex h-full w-full items-center overflow-hidden"
+                  className={`flex h-full w-full items-center ${curve ? '' : 'overflow-hidden'}`}
                   style={{ justifyContent: textAlign.justifyContent }}
                 >
-                  <span
-                    className="font-menu-header font-bold uppercase tracking-wide"
-                    style={{
-                      textAlign: textAlign.textAlign,
-                      fontSize: cap(el.fontSize) || 64,
-                      color: el.color || '#FFFFFF',
-                      lineHeight: 1,
-                      textShadow: '0 4px 10px rgba(0,0,0,0.45)',
-                      fontFamily: el.fontFamily || undefined,
-                    }}
-                  >
-                    {el.text}
-                  </span>
+                  {curve ? (
+                    <CurvedText text={el.text} curve={curve} className={heroClass} style={heroStyle} />
+                  ) : (
+                    <span className={heroClass} style={heroStyle}>
+                      {el.text}
+                    </span>
+                  )}
                 </div>
               </div>
             )
@@ -114,24 +128,27 @@ export default function FreeElementsLayer({ elements }) {
           // 'plain' — centré tant qu'aucun alignement n'est enregistré, donc
           // les textes déjà posés ne bougent pas.
           const plainAlign = elementTextStyle(el)
+          const plainClass = 'font-menu-header uppercase tracking-wide'
+          const plainStyle = {
+            textAlign: plainAlign.textAlign,
+            fontSize: cap(el.fontSize) || 24,
+            color: el.color || '#FFFFFF',
+            lineHeight: 1.1,
+            fontFamily: el.fontFamily || undefined,
+          }
           return (
             <div key={el.id} style={box}>
               <div
-                className="flex h-full w-full items-center overflow-hidden"
+                className={`flex h-full w-full items-center ${curve ? '' : 'overflow-hidden'}`}
                 style={{ justifyContent: plainAlign.justifyContent }}
               >
-                <span
-                  className="font-menu-header uppercase tracking-wide"
-                  style={{
-                    textAlign: plainAlign.textAlign,
-                    fontSize: cap(el.fontSize) || 24,
-                    color: el.color || '#FFFFFF',
-                    lineHeight: 1.1,
-                    fontFamily: el.fontFamily || undefined,
-                  }}
-                >
-                  {el.text}
-                </span>
+                {curve ? (
+                  <CurvedText text={el.text} curve={curve} className={plainClass} style={plainStyle} />
+                ) : (
+                  <span className={plainClass} style={plainStyle}>
+                    {el.text}
+                  </span>
+                )}
               </div>
             </div>
           )
